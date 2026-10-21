@@ -1,0 +1,84 @@
+// Illuminated - Soul Gem Lighting NG - SKSE plugin
+// Copyright (C) 2026 izzydoingit
+// GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
+//
+// What the files share. Each block names the file that defines it.
+
+#pragma once
+
+#include "GemMath.h"
+
+namespace Plugin
+{
+	using Gems::Lower;
+
+	// Runs a_work and lets no exception out: inside a hook or per-frame code one would end the game. The first failure at
+	// each place is logged, later ones there are skipped quietly (Illuminated's LightKit::Guarded).
+	template <class F>
+	inline void Guarded(const char* a_where, F&& a_work) noexcept
+	{
+		static std::atomic<bool> told{ false };
+		try {
+			std::forward<F>(a_work)();
+		} catch (const std::exception& e) {
+			if (!told.exchange(true)) {
+				SKSE::log::error("{}: stopped by an error ({}); later ones here are skipped quietly", a_where, e.what());
+			}
+		} catch (...) {
+			if (!told.exchange(true)) {
+				SKSE::log::error("{}: stopped by an unknown error; later ones here are skipped quietly", a_where);
+			}
+		}
+	}
+
+	// a_job on the game's main thread at the next chance (SKSE's task interface); false when it could not be queued
+	template <class F>
+	[[nodiscard]] bool Later(const char* a_where, F&& a_job) noexcept
+	{
+		try {
+			if (auto* tasks = SKSE::GetTaskInterface()) {
+				tasks->AddTask([a_where, job = std::forward<F>(a_job)]() { Guarded(a_where, job); });
+				return true;
+			}
+		} catch (...) {
+		}
+		return false;
+	}
+
+	// ------------------------------------------------------------------ Lighting.cpp: which lighting the game draws with
+	enum class Lighting : int
+	{
+		kShaders = 0,  // Community Shaders: inverse square lights
+		kEnb = 1,      // an ENB: the game's own lighting, every light drawn plain
+		kVanilla = 2,  // the game's own lighting, every light drawn plain
+	};
+	void                      ReadLighting();   // data load, before any light is made
+	[[nodiscard]] Lighting    LightingFound();  // never picked by the player (Illuminated's rule, his word)
+	[[nodiscard]] const char* LightingName(Lighting a_lighting);
+	[[nodiscard]] bool        InverseSquare();  // the lights are written in Community Shaders' inverse-square words
+	[[nodiscard]] std::string LightingReport();
+
+	// ------------------------------------------------------------------ Settings.cpp: IlluminatedSoulGems\Settings.ini, written by the menu
+	void                         LoadSettings();
+	void                         SaveSettings();  // any thread
+	[[nodiscard]] Gems::Settings SettingsNow();
+	void                         SetSettings(const Gems::Settings& a_settings);  // clamped; the caller saves and applies
+
+	// ------------------------------------------------------------------ GemLights.cpp: the gems and their lights
+	void                      FindGems();       // data load: which forms are soul gems we light, and how each looks
+	void                      InstallFrame();   // data load: our once-a-frame work after the player's update (main thread)
+	void                      DropGemLights();  // a game loads, or a new one starts
+	void                      ApplyNow();       // main thread: the settings onto every light now (the menu, DevBench)
+	[[nodiscard]] std::size_t GemLightCount();
+	[[nodiscard]] std::size_t GemLightsMade();
+	// what the load order dresses its filled gems in, for the menu: family name -> count of filled gem records
+	[[nodiscard]] std::vector<std::pair<std::string, std::size_t>> GemFamilies();
+	[[nodiscard]] std::string                                      RusticFound();         // "Sorted", "Unsorted", "both" or ""
+	[[nodiscard]] std::array<std::size_t, 4>                       GemsLeftTo();          // gem records left to another light mod, by Gems::Owner
+	[[nodiscard]] std::size_t                                      GemsLeftToOwnLight();  // placed gems near the player whose own model's light shines here (left to it)
+	[[nodiscard]] std::string                                      GemsReport();          // for DevBench (JSON)
+
+	// ------------------------------------------------------------------ Menu.cpp / DevBench.cpp
+	void RegisterMenu();
+	void OfferToDevBench();
+}
