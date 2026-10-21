@@ -52,8 +52,9 @@ namespace Plugin
 		kEnb = 1,      // an ENB: the game's own lighting, every light drawn plain
 		kVanilla = 2,  // the game's own lighting, every light drawn plain
 	};
-	void                      ReadLighting();   // data load, before any light is made
-	[[nodiscard]] Lighting    LightingFound();  // never picked by the player (Illuminated's rule, his word)
+	void                      ReadLighting();     // data load, before any light is made
+	[[nodiscard]] Lighting    LightingFound();    // never picked by the player (Illuminated's rule, his word)
+	[[nodiscard]] bool        EnbRunningFound();  // an ENB answering at run time, not only its settings files left behind
 	[[nodiscard]] const char* LightingName(Lighting a_lighting);
 	[[nodiscard]] bool        InverseSquare();  // the lights are written in Community Shaders' inverse-square words
 	[[nodiscard]] std::string LightingReport();

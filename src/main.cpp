@@ -34,7 +34,6 @@ namespace
 	void LoadEverything()
 	{
 		const auto started = std::chrono::steady_clock::now();
-		LoadSettings();
 		ReadLighting();
 		FindGems();
 		SKSE::log::info("{}", Translation::Load("Data/SKSE/Plugins/IlluminatedSoulGems/Translation.json"));
@@ -58,6 +57,7 @@ namespace
 	{
 		switch (a_msg->type) {
 		case SKSE::MessagingInterface::kPostLoad:
+			LoadSettings();  // before DevBench can change one and save the rest
 			OfferToDevBench();
 			break;
 		case SKSE::MessagingInterface::kDataLoaded:

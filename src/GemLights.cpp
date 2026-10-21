@@ -509,8 +509,9 @@ namespace Plugin
 			for (auto& [id, kept] : gKept) {
 				kept.seen = false;
 			}
-			const auto  lighting = LightingFound();
-			const bool  ownLights = lighting == Lighting::kEnb || (lighting == Lighting::kShaders && !gParticleTextures.empty());
+			const auto lighting = LightingFound();
+			// an ENB's own particle lights shine only while an ENB runs - settings files left behind light nothing
+			const bool  ownLights = (lighting == Lighting::kEnb && EnbRunningFound()) || (lighting == Lighting::kShaders && !gParticleTextures.empty());
 			std::size_t leftToOwn = 0;
 			struct Candidate
 			{

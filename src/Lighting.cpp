@@ -80,6 +80,11 @@ namespace Plugin
 		return gFound.load();
 	}
 
+	bool EnbRunningFound()
+	{
+		return gEnbRunning.load();
+	}
+
 	const char* LightingName(Lighting a_lighting)
 	{
 		switch (a_lighting) {
