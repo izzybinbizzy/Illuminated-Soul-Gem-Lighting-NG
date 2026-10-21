@@ -9,7 +9,8 @@
 // by their own model (the Soul Essence Gem, the Soul Cairn's gem bowl and chunks). A gem's look - its color and strength -
 // comes from the model its record wears in this load order, so it follows whatever mesh mod wins: Praedy's Soul Gems (Subtle
 // Soul Gems' copies of them too), Rustic Soul Gems (either download), or the game's own gems by their size. Never a static or
-// a museum display that only wears a gem's model (his rule: displays never get lit) - only the Soul Cairn's pieces.
+// a museum display that only wears a gem's model (his rule: displays never get lit) - with RE::Light loaded, its light on one
+// is put out.
 //
 // HOW (once a frame, after the player's update, on the main thread): every quarter second the gems around the player are
 // looked for; each gets one light of ours hung on its model, made and registered the way ReLight does it (the credit below),
@@ -253,6 +254,11 @@ namespace Plugin
 		// get lit)
 		std::unordered_set<const RE::TESBoundObject*> gDisplays;
 		std::atomic<std::size_t>                      gDisplaysDark{ 0 };
+		constexpr const char*                         kReLightName = "RL";  // the name RE::Light gives every light it hangs
+		constexpr float                               kDisplayEvery = 1.0f;
+		// the displays whose RE::Light light is out, by the model it was put out on - a model rebuilt is looked at again
+		std::unordered_map<RE::FormID, const RE::NiAVObject*> gDarkened;
+		float                                                 gSinceDisplays = kDisplayEvery;
 
 		template <class T>
 		std::size_t AddDisplays()
@@ -270,12 +276,13 @@ namespace Plugin
 			return added;
 		}
 
-		// every light on a display's model that is not ours goes out (culled, so nothing it would light is lit); true when one was
+		// RE::Light's light on a display's model goes out (culled, so nothing it would light is lit) - only RE::Light's: a light
+		// another mod put there is that mod's; true when one was
 		[[nodiscard]] bool DarkenDisplay(RE::NiAVObject* a_root)
 		{
 			bool dark = false;
 			RE::BSVisit::TraverseScenegraphObjects(a_root, [&](RE::NiAVObject* a_object) {
-				if (netimmerse_cast<RE::NiLight*>(a_object) && a_object->name != kName) {
+				if (netimmerse_cast<RE::NiLight*>(a_object) && a_object->name == kReLightName) {
 					if (!a_object->GetAppCulled()) {
 						a_object->SetAppCulled(true);
 					}
@@ -284,6 +291,33 @@ namespace Plugin
 				return RE::BSVisit::BSVisitControl::kContinue;
 			});
 			return dark;
+		}
+
+		// every loaded display, whatever the lights switch says or how far she is (RE::Light lights every loaded reference)
+		void DarkenDisplays()
+		{
+			auto* tes = RE::TES::GetSingleton();
+			if (gDisplays.empty() || !tes) {
+				return;
+			}
+			if (gDarkened.size() > 4096) {
+				gDarkened.clear();  // references long unloaded
+			}
+			std::size_t dark = 0;
+			tes->ForEachReference([&](RE::TESObjectREFR* a_ref) {
+				const auto* base = a_ref ? a_ref->GetBaseObject() : nullptr;
+				auto*       shown = base && gDisplays.contains(base) && a_ref->Is3DLoaded() ? a_ref->Get3D() : nullptr;
+				if (!shown) {
+					return RE::BSContainer::ForEachResult::kContinue;
+				}
+				auto& done = gDarkened[a_ref->GetFormID()];
+				if (done == shown || DarkenDisplay(shown)) {
+					done = shown;
+					++dark;
+				}
+				return RE::BSContainer::ForEachResult::kContinue;
+			});
+			gDisplaysDark = dark;
 		}
 
 		// ---------------------------------------------------------- the lights, main thread only
@@ -477,7 +511,7 @@ namespace Plugin
 			}
 			const auto  lighting = LightingFound();
 			const bool  ownLights = lighting == Lighting::kEnb || (lighting == Lighting::kShaders && !gParticleTextures.empty());
-			std::size_t leftToOwn = 0, displaysDark = 0;
+			std::size_t leftToOwn = 0;
 			struct Candidate
 			{
 				RE::FormID  id;
@@ -489,13 +523,7 @@ namespace Plugin
 			const auto             here = player->GetPosition();
 			tes->ForEachReferenceInRange(player, kRange, [&](RE::TESObjectREFR* a_ref) {
 				const auto* base = a_ref ? a_ref->GetBaseObject() : nullptr;
-				if (base && !gDisplays.empty() && gDisplays.contains(base) && a_ref->Is3DLoaded()) {
-					if (auto* shown = a_ref->Get3D(); shown && DarkenDisplay(shown)) {
-						++displaysDark;
-					}
-					return RE::BSContainer::ForEachResult::kContinue;
-				}
-				const auto it = base ? gGems.find(base) : gGems.end();
+				const auto  it = base ? gGems.find(base) : gGems.end();
 				if (it == gGems.end() || a_ref->IsDisabled() || a_ref->IsDeleted() || !a_ref->Is3DLoaded()) {
 					return RE::BSContainer::ForEachResult::kContinue;
 				}
@@ -520,7 +548,6 @@ namespace Plugin
 				return RE::BSContainer::ForEachResult::kContinue;
 			});
 			gOwnLightNow = leftToOwn;
-			gDisplaysDark = displaysDark;
 			// the nearest kMaxLights gems keep a light: a shop, a stash or the Soul Cairn would otherwise hang one on every gem in reach
 			// (review 2026-10-19); a farther gem is let go below and takes a light again when it is among the nearest
 			if (candidates.size() > kMaxLights) {
@@ -543,6 +570,11 @@ namespace Plugin
 		{
 			auto*      scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
 			const auto s = SettingsNow();
+			gSinceDisplays += (std::max)(a_delta, 0.0f);
+			if (gSinceDisplays >= kDisplayEvery) {
+				gSinceDisplays = 0.0f;
+				DarkenDisplays();
+			}
 			if (!scene || !s.on) {
 				DropAll(scene);
 				gOwnLightNow = 0;
@@ -675,7 +707,9 @@ namespace Plugin
 		DropAll(RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0]);
 		gOwnLight.clear();  // looked at again in the next game
 		gRetryAt.clear();
+		gDarkened.clear();
 		gSinceScan = kScanEvery;  // look around at once in the next game
+		gSinceDisplays = kDisplayEvery;
 	}
 
 	void ApplyNow()
@@ -709,7 +743,7 @@ namespace Plugin
 			families += std::format(R"({}"{}":{})", families.empty() ? "" : ",", name, n);
 		}
 		return std::format(
-			R"({{"gemForms":{},"litByLook":{{{}}},"rustic":"{}","leftTo":{{"emissiveSoulGems":{},"lightPlacer":{},"reLight":{},"ownLightNearYou":{}}},"particleLightConfigs":{},"displays":{},"displaysDarkNearYou":{},"lightsNow":{},"lightsMade":{},"lights":[{}]}})",
+			R"({{"gemForms":{},"litByLook":{{{}}},"rustic":"{}","leftTo":{{"emissiveSoulGems":{},"lightPlacer":{},"reLight":{},"ownLightNearYou":{}}},"particleLightConfigs":{},"displays":{},"displaysDark":{},"lightsNow":{},"lightsMade":{},"lights":[{}]}})",
 			gGems.size(), families, gRustic, gLeftTo[1], gLeftTo[2], gLeftTo[3], gOwnLightNow.load(), gParticleTextures.size(), gDisplays.size(),
 			gDisplaysDark.load(), gKept.size(), gMade.load(), lights);
 	}

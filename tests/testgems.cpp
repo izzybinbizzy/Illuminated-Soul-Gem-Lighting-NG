@@ -29,7 +29,7 @@ namespace
 #define CHECK(x) Check((x), #x, __LINE__)
 
 	// the fewest checks a whole run makes (raise it when checks are added; lower it only when checks are removed on purpose)
-	constexpr int kFloor = 100;  // 2026-10-19: the first run's 91 + the formIDs tokens' 6 + the pulse's 3
+	constexpr int kFloor = 104;
 
 	using namespace Gems;
 
@@ -151,6 +151,7 @@ namespace
 		CHECK(ReLightKeyed("_pgpatcher_dups\\1\\dlc01\\clutter\\dlc01soulgemchunk01.nif"));
 		CHECK(ReLightKeyed("clutter\\soulgem\\soulgemgrand01fullcommon.nif"));
 		CHECK(!ReLightKeyed("_pgpatcher_dups\\1\\clutter\\soulgem\\soulgemcommon01.nif"));
+		CHECK(!ReLightKeyed("clutter\\soulgem\\soulgemdb.nif"));              // its config names the record, not the model
 		CHECK(!LookOfModel("clutter\\soulgem\\SoulGemDB Empty.nif", false));  // Praedy's empty Soul Essence Gem stays dark
 		// the game's look by size
 		CHECK(GameLook(Kind::kCommon, false).rgb == kGameRgb[2] && GameLook(Kind::kCommon, false).kind == Kind::kCommon);

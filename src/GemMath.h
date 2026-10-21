@@ -304,6 +304,9 @@ namespace Gems
 	{
 		const auto bare = BareName(a_model);
 		for (const auto& n : kNamedModels) {
+			if (n.path == "clutter\\soulgem\\soulgemdb.nif") {
+				continue;  // the Soul Essence Gem's config is keyed by its record, never by this model (build soul gems.py)
+			}
 			auto key = BareName(n.path);
 			key.resize(key.size() - std::string_view(".nif").size());
 			if (bare.find(key) != std::string::npos) {
