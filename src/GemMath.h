@@ -1,0 +1,470 @@
+// Illuminated - Soul Gem Lighting NG - SKSE plugin
+// Copyright (C) 2026 izzydoingit
+// GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
+//
+// The game-free part, so tests/testgems.cpp checks it off the game (PC Runner\plugin build.py builds and runs it):
+//   text      Lower, SameText, Trim, BareName - a model path as the plugin compares it
+//   light     CutoffFor, IslReach, PlainAt - Illuminated's LightMath.h, the same numbers; KeyAt - Truman's KeyframeSequence maths
+//   gems      which gem a model is, its color and its strength (the strengths are Illuminated's soul gem rows at half reach)
+//   settings  IlluminatedSoulGems\Settings.ini as one table, its reader and its writer
+
+#pragma once
+
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <charconv>
+#include <cmath>
+#include <cstdint>
+#include <istream>
+#include <iterator>
+#include <optional>
+#include <ostream>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace Gems
+{
+	// ------------------------------------------------------------------ text
+	[[nodiscard]] inline std::string Lower(std::string_view a_text)
+	{
+		std::string out(a_text);
+		std::ranges::transform(out, out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		return out;
+	}
+
+	[[nodiscard]] inline bool SameText(std::string_view a, std::string_view b) noexcept
+	{
+		return a.size() == b.size() && std::ranges::equal(a, b, [](char x, char y) {
+			return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
+		});
+	}
+
+	[[nodiscard]] inline std::string_view Trim(std::string_view a_text) noexcept
+	{
+		constexpr std::string_view kSpace = " \t\r\n";
+		const auto                 first = a_text.find_first_not_of(kSpace);
+		if (first == std::string_view::npos) {
+			return {};
+		}
+		return a_text.substr(first, a_text.find_last_not_of(kSpace) - first + 1);
+	}
+
+	// a model path as the game or a record writes it ("Clutter\SoulGem\SoulGemGrand01Full.nif", "meshes/...") -> its file
+	// name in lower case ("soulgemgrand01full.nif")
+	[[nodiscard]] inline std::string BareName(std::string_view a_model)
+	{
+		const auto cut = a_model.find_last_of("\\/");
+		return Lower(cut == std::string_view::npos ? a_model : a_model.substr(cut + 1));
+	}
+
+	// does a Light Placer formIDs token ("0x2e4ff~skyrim.esm", "0002e4ff~skyrim.esm" - lower case) name the form a_local of a_plugin
+	// (lower case)? An editor ID token is matched apart. Only the low 24 bits count.
+	[[nodiscard]] inline bool TokenNamesForm(std::string_view a_token, std::string_view a_plugin, std::uint32_t a_local) noexcept
+	{
+		const auto tilde = a_token.find('~');
+		if (tilde == std::string_view::npos || a_token.substr(tilde + 1) != a_plugin) {
+			return false;
+		}
+		auto hex = a_token.substr(0, tilde);
+		if (hex.starts_with("0x")) {
+			hex.remove_prefix(2);
+		}
+		std::uint32_t v = 0;
+		const auto [end, ec] = std::from_chars(hex.data(), hex.data() + hex.size(), v, 16);
+		return !hex.empty() && ec == std::errc{} && end == hex.data() + hex.size() && (v & 0x00FFFFFF) == (a_local & 0x00FFFFFF);
+	}
+
+	// a whole model path as the plugin compares one: lower case, backslashes, no leading backslash or "meshes\"
+	// ("Meshes/DLC01/Clutter/X.nif" -> "dlc01\clutter\x.nif")
+	[[nodiscard]] inline std::string NormalPath(std::string_view a_model)
+	{
+		std::string out = Lower(a_model);
+		std::ranges::replace(out, '/', '\\');
+		while (out.starts_with('\\')) {
+			out.erase(0, 1);
+		}
+		if (out.starts_with("meshes\\")) {
+			out.erase(0, 7);
+		}
+		return out;
+	}
+
+	// ------------------------------------------------------------------ light (Illuminated's LightMath.h, the same numbers)
+	inline constexpr float kK = 3918.88f;  // the cutoff constant every config of ours is written with (0.8 * 69.99²)
+	inline constexpr float kGemSize = 1.0f;
+	inline constexpr float kLowestCutoff = 0.01f, kHighestCutoff = 1.0f;
+
+	// cutoff = K * fade / (reach² + size²)
+	[[nodiscard]] inline float CutoffFor(float a_fade, float a_reach, float a_size = kGemSize) noexcept
+	{
+		return std::clamp(kK * a_fade / (a_reach * a_reach + a_size * a_size), kLowestCutoff, kHighestCutoff);
+	}
+
+	// how far an inverse-square light reaches: reach² = K * fade / cutoff - size²
+	[[nodiscard]] inline float IslReach(float a_fade, float a_cutoff, float a_size = kGemSize) noexcept
+	{
+		if (a_cutoff <= 0.0f || a_fade <= 0.0f) {
+			return 0.0f;
+		}
+		return std::sqrt((std::max)(kK * a_fade / a_cutoff - a_size * a_size, 0.0f));
+	}
+
+	// the same light drawn by the game's own lighting (ENB, Vanilla): Dynamic Wards' house light - a reach of 133 drawn at
+	// radius 178 with fade 1.14 - never shorter than the radius already stated
+	struct Plain
+	{
+		float fade{ 0.0f }, radius{ 0.0f };
+	};
+	[[nodiscard]] inline Plain PlainAt(float a_fade, float a_radius, float a_reach) noexcept
+	{
+		constexpr float kPlainReach = 178.0f / 133.0f, kPlainFade = 1.14f;
+		return { a_fade * kPlainFade, (std::max)(a_radius, a_reach * kPlainReach) };
+	}
+
+	// A fade controller's value at a_time: Truman's KeyframeSequence::Interpolate (RE::Light, controller.h, GPL-3.0; his
+	// permission, credited) - step (0), linear (1) or cubic Hermite with no tangents (2). a_keys sorted by time; empty gives 0.
+	[[nodiscard]] inline float KeyAt(const std::vector<std::pair<float, float>>& a_keys, int a_interpolation, float a_time) noexcept
+	{
+		if (a_keys.empty()) {
+			return 0.0f;
+		}
+		const auto next = std::ranges::upper_bound(a_keys, a_time, {}, &std::pair<float, float>::first);
+		if (next == a_keys.begin()) {
+			return a_keys.front().second;
+		}
+		if (next == a_keys.end()) {
+			return a_keys.back().second;
+		}
+		const auto& [t0, v0] = *std::prev(next);
+		const auto& [t1, v1] = *next;
+		const float dt = t1 - t0;
+		if (dt <= 0.0f || a_interpolation == 0) {
+			return v0;
+		}
+		const float u = (a_time - t0) / dt;
+		if (a_interpolation == 1) {
+			return (1.0f - u) * v0 + u * v1;
+		}
+		const float u2 = u * u, u3 = u2 * u;
+		return (2.0f * u3 - 3.0f * u2 + 1.0f) * v0 + (-2.0f * u3 + 3.0f * u2) * v1;
+	}
+
+	// the soft pulse: the light breathes 10% either side of its strength over 4.5 s, as Illuminated's soul gem rows did
+	inline constexpr float     kPulseSeconds = 4.5f;
+	[[nodiscard]] inline float PulseAt(float a_seconds) noexcept
+	{
+		static const std::vector<std::pair<float, float>> keys{ { 0.0f, 0.9f }, { kPulseSeconds / 2.0f, 1.1f }, { kPulseSeconds, 0.9f } };
+		const float                                       t = std::fmod(std::fabs(a_seconds), kPulseSeconds);
+		return KeyAt(keys, 2, t);
+	}
+
+	// ------------------------------------------------------------------ gems
+	// how strong a gem's light is: the petty to grand gems step up, the named quest gems shine as a grand one, the two stars and
+	// the Soul Cairn's bowl and chunks the most
+	enum class Kind : std::uint8_t
+	{
+		kPetty,
+		kLesser,
+		kCommon,
+		kGreater,
+		kGrand,
+		kBlack,
+		kNamed,
+		kStar,
+		kCairn,
+	};
+	inline constexpr std::size_t kKinds = 9;
+
+	struct Strength
+	{
+		float fade{ 0.0f }, cutoff{ 0.0f };
+	};
+	// Illuminated's soul gem rows (Illuminated Master r0016, at half the reach they had - his report 2026-10-19): on Community
+	// Shaders a petty gem reaches about 22 units, a grand one about 47, a star about 60
+	inline constexpr std::array<Strength, kKinds> kStrength{ {
+		{ 0.123f, 0.9503f },   // petty
+		{ 0.1836f, 0.9502f },  // lesser
+		{ 0.2563f, 0.95f },    // common
+		{ 0.3881f, 0.95f },    // greater
+		{ 0.5472f, 0.95f },    // grand
+		{ 0.5472f, 0.95f },    // black
+		{ 0.5472f, 0.95f },    // a named quest gem
+		{ 0.8729f, 0.95f },    // Azura's Star, the Black Star
+		{ 0.8729f, 0.95f },    // the Soul Cairn's gem bowl and chunks
+	} };
+
+	// whose gem it is: what decides its color
+	enum class Family : std::uint8_t
+	{
+		kGame,       // the game's own gem models (or one this mod does not know)
+		kPraedys,    // Praedy's Soul Gems' filled gems (and Subtle Soul Gems' copies of them)
+		kRustic,     // Rustic Soul Gems (both downloads)
+		kNamed,      // a quest gem with a model of its own
+		kStar,       // Azura's Star, the Black Star
+		kSoulCairn,  // the Soul Cairn's gem bowl, chunks and portal bowl
+	};
+
+	using Rgb = std::array<std::uint8_t, 3>;
+
+	struct Look
+	{
+		Family family{ Family::kGame };
+		Kind   kind{ Kind::kGrand };
+		Rgb    rgb{ 255, 255, 255 };
+	};
+
+	// the six sizes as a gem model names them, in Kind order
+	inline constexpr std::array<std::string_view, 6> kSizeWords{ "petty", "lesser", "common", "greater", "grand", "black" };
+
+	// Each family's color per size (petty, lesser, common, greater, grand, black). His word 2026-10-19: the gem's own pink /
+	// purple is the light's color ("the soul gem is pink/purple the exact color of the light"). Read off the art the same day
+	// (`Misc\Build work\soul gem mod 2026-10-19\`): every gem model animates its glow through purple, teal and pink; Praedy's
+	// filled gems peak pink. Rustic's gems each wear their own texture color (petty blue, lesser teal, common violet, greater
+	// sky blue, grand cyan, black purple - the 1K and 2K downloads within 15° of each other). The game's own gems keep the
+	// colors Illuminated gave them.
+	inline constexpr std::array<Rgb, 6> kGameRgb{ { { 120, 150, 255 }, { 120, 150, 255 }, { 120, 150, 255 }, { 120, 150, 255 },
+		{ 120, 150, 255 }, { 170, 90, 255 } } };
+	inline constexpr std::array<Rgb, 6> kPraedysRgb{ { { 230, 165, 255 }, { 230, 165, 255 }, { 230, 165, 255 }, { 230, 165, 255 },
+		{ 230, 165, 255 }, { 200, 30, 255 } } };
+	inline constexpr std::array<Rgb, 6> kRusticRgb{ { { 128, 179, 255 }, { 76, 193, 255 }, { 127, 93, 255 }, { 26, 181, 255 },
+		{ 25, 239, 255 }, { 155, 119, 255 } } };
+
+	struct NamedModel
+	{
+		std::string_view path;  // the model as NormalPath writes it (a copy under another folder - a mod's decor - is not it)
+		Family           family;
+		Kind             kind;
+		Rgb              rgb;
+	};
+	// the gems and pieces known by their own model (their colors are Illuminated's rows for them)
+	inline constexpr std::array<NamedModel, 7> kNamedModels{ {
+		{ "clutter\\soulgem\\soulgemarniel.nif", Family::kNamed, Kind::kNamed, { 185, 255, 255 } },     // Arniel's warped gems
+		{ "clutter\\soulgem\\soulgemmalyn.nif", Family::kNamed, Kind::kNamed, { 255, 131, 250 } },      // Malyn's Black Soul Gem
+		{ "clutter\\soulgem\\soulgemwylandriah.nif", Family::kNamed, Kind::kNamed, { 170, 90, 255 } },  // Wylandriah's Soul Gem
+		{ "clutter\\soulgem\\soulgemdb.nif", Family::kNamed, Kind::kNamed, { 188, 255, 255 } },         // the Soul Essence Gem (full)
+		{ "dlc01\\clutter\\dlc01soulgembowlfull.nif", Family::kSoulCairn, Kind::kCairn, { 170, 90, 255 } },
+		{ "dlc01\\clutter\\dlc01soulgemchunk01.nif", Family::kSoulCairn, Kind::kCairn, { 170, 90, 255 } },
+		{ "dlc01\\dungeons\\castle\\animated\\scportalbowl\\casscportalbowl01.nif", Family::kSoulCairn, Kind::kNamed, { 170, 90, 255 } },  // the portal's bowl
+	} };
+
+	inline constexpr Rgb kAzurasStarRgb{ 255, 222, 165 };  // its art is gold and white (the game's and Praedy's)
+	inline constexpr Rgb kBlackStarRgb{ 150, 70, 255 };    // its art is a dark purple
+
+	[[nodiscard]] inline const Rgb& SizeRgb(const std::array<Rgb, 6>& a_family, Kind a_kind) noexcept
+	{
+		return a_family[std::min<std::size_t>(static_cast<std::size_t>(a_kind), 5)];
+	}
+
+	// the size a gem model's name carries ("soulgemgrand01full.nif", "soulgemblack_full.nif" -> grand, black), or none
+	[[nodiscard]] inline std::optional<Kind> SizeOfName(std::string_view a_bare) noexcept
+	{
+		constexpr std::string_view kStem = "soulgem";
+		if (!a_bare.starts_with(kStem)) {
+			return std::nullopt;
+		}
+		const auto rest = a_bare.substr(kStem.size());
+		for (std::size_t i = 0; i < kSizeWords.size(); ++i) {
+			if (rest.starts_with(kSizeWords[i])) {
+				return static_cast<Kind>(i);
+			}
+		}
+		return std::nullopt;
+	}
+
+	// the look a model gives its gem; none = not a model of ours to judge (the caller uses the game's look for the gem's size).
+	// a_rusticLoaded: Rustic Soul Gems' plugin is in the load order (its "_full" models; another mod may ship the same names)
+	[[nodiscard]] inline std::optional<Look> LookOfModel(std::string_view a_model, bool a_rusticLoaded)
+	{
+		const auto path = NormalPath(a_model);
+		for (const auto& n : kNamedModels) {
+			if (path == n.path) {
+				return Look{ n.family, n.kind, n.rgb };
+			}
+		}
+		const auto bare = BareName(path);
+		const auto size = SizeOfName(bare);
+		if (!size) {
+			return std::nullopt;
+		}
+		if (bare.find("01full") != std::string::npos) {  // Praedy's filled gems (CS Light's part-filled ones too: "...01fullcommon.nif")
+			return Look{ Family::kPraedys, *size, SizeRgb(kPraedysRgb, *size) };
+		}
+		if (a_rusticLoaded && bare.ends_with("_full.nif")) {
+			return Look{ Family::kRustic, *size, SizeRgb(kRusticRgb, *size) };
+		}
+		return std::nullopt;
+	}
+
+	// RE::Light lights a placed reference whose model's bare name holds a config's key, so a decor copy under another folder wears
+	// this mod's RE::Light light too: true for a model holding one of the keys (the known models' bare names, Praedy's "01full")
+	[[nodiscard]] inline bool ReLightKeyed(std::string_view a_model)
+	{
+		const auto bare = BareName(a_model);
+		for (const auto& n : kNamedModels) {
+			if (n.path == "clutter\\soulgem\\soulgemdb.nif") {
+				continue;  // the Soul Essence Gem's config is keyed by its record, never by this model (build soul gems.py)
+			}
+			auto key = BareName(n.path);
+			key.resize(key.size() - std::string_view(".nif").size());
+			if (bare.find(key) != std::string::npos) {
+				return true;
+			}
+		}
+		return SizeOfName(bare) && bare.find("01full") != std::string::npos;
+	}
+
+	// the game's own look for a gem of this size (a_black: it holds black souls)
+	[[nodiscard]] inline Look GameLook(Kind a_size, bool a_black) noexcept
+	{
+		const Kind kind = a_black ? Kind::kBlack : a_size;
+		return Look{ Family::kGame, kind, SizeRgb(kGameRgb, kind) };
+	}
+
+	// Emissive Soul Gems (iamzachhunter, Nexus 191137): the models its Light Placer file lights. HIS WORDS 2026-10-19: "the mod
+	// will not cover anything that is already done by emmisive soul gems ... these two will work together. you can cover
+	// vanilla/enb/cs without light placer but not the light placer configs they use", "i like that guy i dont want to step on
+	// his mod". So with Light Placer loaded these models are his, whether or not his mod is installed; without Light Placer
+	// (which his mod needs) this mod lights them.
+	inline constexpr std::array<std::string_view, 14> kEmissiveModels{ "soulgempetty01.nif", "soulgempetty_full.nif",
+		"soulgemlesser01.nif", "soulgemlesser_full.nif", "soulgemcommon01.nif", "soulgemcommon_full.nif", "soulgemgreater01.nif",
+		"soulgemgreater_full.nif", "soulgemgrand01.nif", "soulgemgrand_full.nif", "soulgemblack01.nif", "soulgemblack_full.nif",
+		"azurastar.nif", "azurastarlite.nif" };
+
+	[[nodiscard]] inline bool EmissiveModel(std::string_view a_model)
+	{
+		const auto bare = BareName(a_model);
+		return std::ranges::find(kEmissiveModels, bare) != kEmissiveModels.end();
+	}
+
+	// the gems this mod's RE::Light configs light (SKSE\Plugins\ReLight\Configs\Illuminated - Soul Gem Lighting NG\): Praedy's
+	// filled gems, the named quest gems and the Soul Cairn's pieces - each keyed by its own model (the Soul Essence Gem by its
+	// record). With RE::Light loaded the plugin leaves these to it; the gems that share the game's model (or are Emissive Soul
+	// Gems' models) have no config, so the plugin lights them itself
+	[[nodiscard]] inline bool ReLightCovers(Family a_family) noexcept
+	{
+		return a_family == Family::kPraedys || a_family == Family::kNamed || a_family == Family::kSoulCairn;
+	}
+
+	// who lights a gem: this plugin, or a light mod it leaves the gem to
+	enum class Owner : std::uint8_t
+	{
+		kThisMod,
+		kEmissive,     // Light Placer is loaded and the model is Emissive Soul Gems'
+		kLightPlacer,  // Light Placer is loaded and one of its configs claims the gem
+		kReLight,      // RE::Light is loaded and this mod's RE::Light configs light the gem
+	};
+
+	[[nodiscard]] inline Owner OwnerOf(std::string_view a_model, Family a_family, bool a_lightPlacer, bool a_claimedByLightPlacer,
+		bool a_reLight)
+	{
+		if (a_lightPlacer && EmissiveModel(a_model)) {
+			return Owner::kEmissive;
+		}
+		if (a_lightPlacer && a_claimedByLightPlacer) {
+			return Owner::kLightPlacer;
+		}
+		if (a_reLight && ReLightCovers(a_family) && !EmissiveModel(a_model)) {
+			return Owner::kReLight;
+		}
+		return Owner::kThisMod;
+	}
+
+	[[nodiscard]] inline std::string_view FamilyName(Family a_family) noexcept
+	{
+		switch (a_family) {
+		case Family::kPraedys:
+			return "Praedy's Soul Gems";
+		case Family::kRustic:
+			return "Rustic Soul Gems";
+		case Family::kNamed:
+			return "named gems";
+		case Family::kStar:
+			return "stars";
+		case Family::kSoulCairn:
+			return "Soul Cairn";
+		default:
+			return "the game's own gems";
+		}
+	}
+
+	// what a gem's light is drawn with now. a_brightness, a_reach: 1 = as built. Community Shaders (inverse square): the cutoff
+	// goes with Brightness / Reach² (Illuminated's sliders), so Brightness changes how bright and Reach how far; the radius is the
+	// reach (what the scene culls by). The game's own lighting (ENB, Vanilla): the same light drawn plain. a_pulse (the soft
+	// pulse, 0.9-1.1) moves only the fade: the cutoff and the radius come from the settings alone, so they stay put while the
+	// light breathes (the code review 2026-10-19: a pulsed cutoff pinned at the clamp moved the radius every frame)
+	struct Shown
+	{
+		float fade{ 0.0f }, radius{ 0.0f }, cutoff{ 0.0f };
+	};
+	[[nodiscard]] inline Shown ShownFor(const Strength& a_s, bool a_inverseSquare, float a_brightness, float a_reach,
+		float a_pulse = 1.0f) noexcept
+	{
+		const float b = (std::max)(a_brightness, 0.0f), r = (std::max)(a_reach, 0.05f), p = (std::max)(a_pulse, 0.0f);
+		if (a_inverseSquare) {
+			const float cutoff = std::clamp(a_s.cutoff * b / (r * r), kLowestCutoff, kHighestCutoff);
+			const float fade = a_s.fade * b;
+			return { fade * p, (std::max)(IslReach(fade, cutoff), 1.0f), cutoff };
+		}
+		const auto plain = PlainAt(a_s.fade * b * p, 0.0f, IslReach(a_s.fade, a_s.cutoff) * r);
+		return { plain.fade, (std::max)(plain.radius, 1.0f), 0.0f };
+	}
+
+	// ------------------------------------------------------------------ settings (IlluminatedSoulGems\Settings.ini, written by the menu)
+	inline constexpr int kBrightnessMin = 25, kBrightnessMax = 200, kReachMin = 50, kReachMax = 150;
+
+	struct Settings
+	{
+		bool on{ true };         // every soul gem light
+		int  brightness{ 100 };  // percent
+		int  reach{ 100 };       // percent
+		bool pulse{ true };      // the soft pulse
+	};
+
+	// the file's text over a_out's values (the defaults, for a fresh table); keys in any case; a number that does not read
+	// keeps the value it had; every number clamped to its slider. Returns the key lines read.
+	inline std::size_t ReadSettings(std::istream& a_in, Settings& a_out)
+	{
+		std::size_t lines = 0;
+		std::string line;
+		while (a_in && std::getline(a_in, line)) {
+			const auto text = Trim(line);
+			if (text.empty() || text.front() == ';' || text.front() == '#' || text.front() == '[') {
+				continue;
+			}
+			const auto eq = text.find('=');
+			if (eq == std::string_view::npos) {
+				continue;
+			}
+			const auto key = Trim(text.substr(0, eq));
+			const auto val = Trim(text.substr(eq + 1));
+			int        v = 0;
+			const auto [end, ec] = std::from_chars(val.data(), val.data() + val.size(), v);
+			if (ec != std::errc{} || end != val.data() + val.size()) {
+				continue;
+			}
+			++lines;
+			if (SameText(key, "Lights")) {
+				a_out.on = v != 0;
+			} else if (SameText(key, "Brightness")) {
+				a_out.brightness = std::clamp(v, kBrightnessMin, kBrightnessMax);
+			} else if (SameText(key, "Reach")) {
+				a_out.reach = std::clamp(v, kReachMin, kReachMax);
+			} else if (SameText(key, "Pulse")) {
+				a_out.pulse = v != 0;
+			} else {
+				--lines;  // a key this version does not know
+			}
+		}
+		return lines;
+	}
+
+	inline void WriteSettings(const Settings& a_s, std::ostream& a_out)
+	{
+		a_out << "; Illuminated - Soul Gem Lighting NG - written by its menu (SKSE Menu Framework). Change these in game, not here.\n"
+			  << "[Settings]\nLights=" << (a_s.on ? 1 : 0) << "\nBrightness=" << a_s.brightness << "\nReach=" << a_s.reach
+			  << "\nPulse=" << (a_s.pulse ? 1 : 0) << "\n";
+	}
+}

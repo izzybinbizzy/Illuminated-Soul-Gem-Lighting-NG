@@ -1,0 +1,141 @@
+// Illuminated - Soul Gem Lighting NG - SKSE plugin
+// Copyright (C) 2026 izzydoingit
+// GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
+//
+// The SKSE Menu Framework page - every setting this mod has (his rule: settings in the SKSE menu only). One page: what was
+// found (the lighting, the gem looks, the gems left to another mod's light), then the lights' switch, Brightness, Reach and the
+// soft pulse. A change is saved and applied on the game's main thread when it is let go.
+
+#ifndef WIN32_LEAN_AND_MEAN
+#	define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#	define NOMINMAX  // the build defines it too (xmake.lua)
+#endif
+#include "Plugin.h"
+
+// SKSE Menu Framework's own header (theirs, MIT): its warnings are not ours, and ours are errors (xmake.lua) - under MSVC and
+// under clang-cl, which checks every file too
+#pragma warning(push, 0)
+#if defined(__clang__)
+#	pragma clang diagnostic push
+#	pragma clang diagnostic ignored "-Weverything"
+#endif
+#include "SKSEMenuFramework.h"
+#if defined(__clang__)
+#	pragma clang diagnostic pop
+#endif
+#pragma warning(pop)
+#include "Translation.h"
+#include "MenuStyle.h"
+
+namespace Plugin
+{
+	namespace
+	{
+		using namespace ImGuiMCP;
+		using MenuStyle::Header;
+		using MenuStyle::kMuted;
+		using Translation::Fill;
+		using Translation::T;
+		namespace Icon = MenuStyle::Icon;
+#define TR_MARK(x) x  // a line Translation.json carries, though it is not written inside T( ) here
+
+		// the menu draws on the RENDER thread: the save and the lights follow in ONE task on the main thread
+		void Changed()
+		{
+			static std::atomic<bool> queued{ false };
+			if (queued.exchange(true)) {
+				return;
+			}
+			if (!Later("menu change", []() {
+					queued = false;
+					SaveSettings();
+					ApplyNow();
+				})) {
+				queued = false;
+				SKSE::log::warn("menu: the change could not reach the main thread - it is kept for this session but not saved");
+			}
+		}
+
+		// a percent slider; stored while dragged (the lights follow live), saved when let go
+		void Percent(const char* a_label, int Gems::Settings::* a_field, int a_min, int a_max, const char* a_tip)
+		{
+			auto s = SettingsNow();
+			int  v = s.*a_field;
+			SetNextItemWidth(260.0f);
+			if (SliderInt(a_label, &v, a_min, a_max, "%d%%")) {
+				v = std::clamp((v + 2) / 5 * 5, a_min, a_max);  // in steps of 5, rounded only when moved
+				if (v != s.*a_field) {
+					s.*a_field = v;
+					SetSettings(s);
+				}
+			}
+			if (IsItemDeactivatedAfterEdit()) {
+				Changed();
+			}
+			MenuStyle::Tip(a_tip);
+		}
+
+		void Switch(const char* a_label, bool Gems::Settings::* a_field, const char* a_tip)
+		{
+			auto s = SettingsNow();
+			bool v = s.*a_field;
+			if (Checkbox(a_label, &v)) {
+				s.*a_field = v;
+				SetSettings(s);
+				Changed();
+			}
+			MenuStyle::Tip(a_tip);
+		}
+
+		void __stdcall RenderSettings()
+		{
+			MenuStyle::Page page;
+
+			Header(Icon::kGem, T("Soul Gem Lighting"));
+			TextColored(kMuted, "%s", Fill(T("Lighting: Automatic - {}"), T(LightingName(LightingFound()))).c_str());
+			const auto families = GemFamilies();
+			for (const auto& [name, n] : families) {
+				MenuStyle::Status(true, Fill(T("{}: {}"), T(name.c_str()), std::to_string(n)).c_str());
+			}
+			if (const auto rustic = RusticFound(); !rustic.empty()) {
+				TextColored(kMuted, "%s", Fill(T("Rustic Soul Gems found ({})"), T(rustic.c_str())).c_str());
+			}
+			// the gems another light mod lights, which this mod leaves to it (never two lights on one gem)
+			const auto  left = GemsLeftTo();
+			const char* leftTo[] = { nullptr, TR_MARK("Left to Emissive Soul Gems (Light Placer): {}"), TR_MARK("Left to other Light Placer lights: {}"),
+				TR_MARK("Left to RE::Light (this mod's RE::Light files): {}") };
+			for (std::size_t i = 1; i < left.size(); ++i) {
+				if (left[i]) {
+					TextColored(kMuted, "%s", Fill(T(leftTo[i]), std::to_string(left[i])).c_str());
+				}
+			}
+			if (const auto own = GemsLeftToOwnLight(); own) {
+				TextColored(kMuted, "%s", Fill(T("Gems near you left to their own light: {}"), std::to_string(own)).c_str());
+			}
+
+			Header(Icon::kBulb, T("Lights"));
+			Switch(T("Soul gem lights"), &Gems::Settings::on, T("Every filled soul gem, Azura's Star and the Black Star glow in their own color."));
+			const bool on = SettingsNow().on;
+			BeginDisabled(!on);
+			Percent(T("Brightness"), &Gems::Settings::brightness, Gems::kBrightnessMin, Gems::kBrightnessMax,
+				T("How bright the gems' light is. 100% is as built."));
+			Percent(T("Reach"), &Gems::Settings::reach, Gems::kReachMin, Gems::kReachMax, T("How far the gems' light reaches. 100% is as built."));
+			Switch(T("Soft pulse"), &Gems::Settings::pulse, T("The light breathes slowly, as the gem's own glow does."));
+			EndDisabled();
+			TextColored(kMuted, "%s", Fill(T("Gems lit near you: {}"), std::to_string(GemLightCount())).c_str());
+		}
+	}
+
+	void RegisterMenu()
+	{
+		if (!SKSEMenuFramework::IsInstalled()) {
+			SKSE::log::warn("SKSE Menu Framework is not installed, so there is no settings page; the settings file still applies");
+			return;
+		}
+		SKSEMenuFramework::SetSection(T("Illuminated - Soul Gem Lighting NG"));
+		SKSEMenuFramework::AddSectionItem(T("Settings"), RenderSettings);
+		SKSE::log::info("settings page added to SKSE Menu Framework {}", SKSEMenuFramework::GetMenuFrameworkVersion());
+	}
+}
