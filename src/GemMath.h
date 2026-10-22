@@ -219,12 +219,10 @@ namespace Gems
 	// the six sizes as a gem model names them, in Kind order
 	inline constexpr std::array<std::string_view, 6> kSizeWords{ "petty", "lesser", "common", "greater", "grand", "black" };
 
-	// Each family's color per size (petty, lesser, common, greater, grand, black). His word 2026-10-19: the gem's own pink /
-	// purple is the light's color ("the soul gem is pink/purple the exact color of the light"). Read off the art the same day
-	// (`Misc\Build work\soul gem mod 2026-10-19\`): every gem model animates its glow through purple, teal and pink; Praedy's
-	// filled gems peak pink. Rustic's gems each wear their own texture color (petty blue, lesser teal, common violet, greater
-	// sky blue, grand cyan, black purple - the 1K and 2K downloads within 15° of each other). The game's own gems keep the
-	// colors Illuminated gave them.
+	// Each family's color per size (petty, lesser, common, greater, grand, black): the gem's own glow is the light's color. Every
+	// gem model animates its glow through purple, teal and pink; Praedy's filled gems peak pink. Rustic's gems each wear their own
+	// texture color (the 1K and 2K downloads within 15° of each other). The game's own gems keep the colors Illuminated gave them;
+	// in game the game's family and Rustic read theirs off the model (ColorFromModel)
 	inline constexpr std::array<Rgb, 6> kGameRgb{ { { 120, 150, 255 }, { 120, 150, 255 }, { 120, 150, 255 }, { 120, 150, 255 },
 		{ 120, 150, 255 }, { 170, 90, 255 } } };
 	inline constexpr std::array<Rgb, 6> kPraedysRgb{ { { 230, 165, 255 }, { 230, 165, 255 }, { 230, 165, 255 }, { 230, 165, 255 },
@@ -369,11 +367,9 @@ namespace Gems
 		return Look{ Family::kGame, kind, SizeRgb(kGameRgb, kind) };
 	}
 
-	// Emissive Soul Gems (iamzachhunter, Nexus 191137): the models its Light Placer file lights. HIS WORDS 2026-10-19: "the mod
-	// will not cover anything that is already done by emmisive soul gems ... these two will work together. you can cover
-	// vanilla/enb/cs without light placer but not the light placer configs they use", "i like that guy i dont want to step on
-	// his mod". So with Light Placer loaded these models are his, whether or not his mod is installed; without Light Placer
-	// (which his mod needs) this mod lights them.
+	// Emissive Soul Gems (iamzachhunter, Nexus 191137): the models its Light Placer file lights. The two mods work together: with
+	// Light Placer loaded these models are his, whether or not his mod is installed; without Light Placer (which his mod needs)
+	// this mod lights them.
 	// Whole paths, as Light Placer matches them: a replacer's copy in another folder (MLP's and Vayura's "full\", Spherical's
 	// "Filled\") is not his - its own Light Placer file, if any, claims it
 	inline constexpr std::array<std::string_view, 14> kEmissiveModels{ "clutter\\soulgem\\soulgempetty01.nif",
@@ -395,6 +391,13 @@ namespace Gems
 	[[nodiscard]] inline bool ReLightCovers(Family a_family) noexcept
 	{
 		return a_family == Family::kPraedys || a_family == Family::kNamed || a_family == Family::kSoulCairn;
+	}
+
+	// a script that puts an item on show (Legacy of the Dragonborn's dbm_dynamicdisplayscript, a museum's DisplayCase...): the
+	// gem it is attached to is a display, never lit
+	[[nodiscard]] inline bool IsDisplayScript(std::string_view a_script)
+	{
+		return Lower(a_script).find("display") != std::string::npos;
 	}
 
 	// who lights a gem: this plugin, or a light mod it leaves the gem to
@@ -443,7 +446,7 @@ namespace Gems
 	// goes with Brightness / Reach² (Illuminated's sliders), so Brightness changes how bright and Reach how far; the radius is the
 	// reach (what the scene culls by). The game's own lighting (ENB, Vanilla): the same light drawn plain. a_pulse (the soft
 	// pulse, 0.9-1.1) moves only the fade: the cutoff and the radius come from the settings alone, so they stay put while the
-	// light breathes (the code review 2026-10-19: a pulsed cutoff pinned at the clamp moved the radius every frame)
+	// light breathes (a pulsed cutoff pinned at the clamp would move the radius every frame)
 	struct Shown
 	{
 		float fade{ 0.0f }, radius{ 0.0f }, cutoff{ 0.0f };

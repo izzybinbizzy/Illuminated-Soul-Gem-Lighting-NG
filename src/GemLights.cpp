@@ -18,7 +18,7 @@
 // the same light drawn plain on ENB and Vanilla), breathing softly when the pulse is on. A gem picked up, unloaded or turned off
 // loses its light; a game loaded drops them all.
 //
-// NOTHING ANOTHER MOD ALREADY DOES (his rule 2026-10-19): a gem another light mod lights is left to it - a Light Placer file's
+// NOTHING ANOTHER MOD ALREADY DOES: a gem another light mod lights is left to it - a Light Placer file's
 // gem (Emissive Soul Gems', CS Light's, the CS Lights add-ons'), a gem whose model already holds a light that is not ours (Light
 // Placer's, RE::Light's, one inside the mesh - looked at every scan), and a gem whose own model carries a light (the ENB particle
 // lights of Praedy's, Subtle's, Skyking's, Kanjs' ... meshes) wherever that light shines: always on ENB, and on Community
@@ -40,7 +40,7 @@ namespace Plugin
 		constexpr const char* kName = "SoulGemLight";
 		constexpr float       kAmbient = 0.1f;     // a plain light's ambient: a tenth of its color (RE::Light's rule)
 		constexpr float       kScanEvery = 0.25f;  // seconds between looks around the player
-		constexpr std::size_t kMaxLights = 24;     // the most gem lights at once - the nearest gems (review 2026-10-19)
+		constexpr std::size_t kMaxLights = 24;     // the most gem lights at once - the nearest gems
 		constexpr auto        kRetryAfter = std::chrono::seconds(15);
 		constexpr float       kRange = 4096.0f;                               // how far from the player a gem is lit (its light reaches under 100 units)
 		constexpr RE::FormID  kAzurasStar = 0x063B27, kBlackStar = 0x063B29;  // in Skyrim.esm
@@ -322,7 +322,7 @@ namespace Plugin
 			auto*       dh = RE::TESDataHandler::GetSingleton();
 			// the plain form list, never GetFormArray<T>(): that one reinterprets the game's TESForm pointers as T*, which is wrong
 			// for a class whose form part does not sit at its start - a movable static's sits 0x20 in (BGSMovableStatic.h), and its
-			// typed list crashed the game at data load on 2026-10-19 (a call through a vtable read 0x20 off)
+			// typed list crashed the game at data load (a call through a vtable read 0x20 off)
 			for (auto* form : dh->GetFormArray(T::FORMTYPE)) {
 				auto*       bound = form ? form->template As<RE::TESBoundObject>() : nullptr;
 				const auto* model = bound ? form->template As<RE::TESModel>() : nullptr;
@@ -419,12 +419,12 @@ namespace Plugin
 		};
 		std::unordered_map<RE::FormID, Kept> gKept;  // by the placed gem's form id
 		// a gem's model carries a light that shines here - looked at once per gem RECORD (its model is the record's): never by a placed
-		// gem's form id, which the game hands to the next gem placed after one is deleted (2026-10-19's check: two Creation Club gems
-		// on the plain models were left dark as "own light" - the verdict of the Praedy's gem placed before them under the same id)
+		// gem's form id, which the game hands to the next gem placed after one is deleted (a gem would take the verdict of the one
+		// placed before it under the same id)
 		std::unordered_map<const RE::TESBoundObject*, bool> gOwnLight;
-		// a gem whose light could not be made or registered is tried again only after kRetryAfter (review 2026-10-19: it was
-		// re-made four times a second, silently) - by the placed gem AND its model, so a new gem that gets the same form id or a
-		// model at the same address (both are reused) is never held back by another gem's failure
+		// a gem whose light could not be made or registered is tried again only after kRetryAfter, never four times a second -
+		// by the placed gem AND its model, so a new gem that gets the same form id or a model at the same address (both are
+		// reused) is never held back by another gem's failure
 		struct Retry
 		{
 			const RE::NiNode*                     root{ nullptr };
@@ -556,6 +556,27 @@ namespace Plugin
 			return it->second;
 		}
 
+		// a gem on show is never lit (displays never get lit): a placed gem wearing a display script - Legacy of the Dragonborn's
+		// museum shows the real Azura's Star and Black Star through dbm_dynamicdisplayscript, enabled once donated. A gem left
+		// lying about carries no such script (the College's carry defaultDisableHavokOnLoad). The script table's place is SE / AE's
+		std::atomic<std::size_t> gOnShowNow{ 0 };
+
+		[[nodiscard]] bool OnShow(const RE::TESObjectREFR* a_ref)
+		{
+			auto* vm = REL::Module::IsVR() ? nullptr : RE::BSScript::Internal::VirtualMachine::GetSingleton();
+			auto* policy = vm ? vm->GetObjectHandlePolicy() : nullptr;
+			if (!policy) {
+				return false;
+			}
+			const auto          handle = policy->GetHandleForObject(static_cast<RE::VMTypeID>(RE::FormType::Reference), a_ref);
+			RE::BSSpinLockGuard locker(vm->attachedScriptsLock);
+			const auto          found = vm->attachedScripts.find(handle);
+			return found != vm->attachedScripts.end() && std::ranges::any_of(found->second, [](const auto& a_script) {
+				const auto* type = a_script.get() ? a_script.get()->GetTypeInfo() : nullptr;
+				return type && Gems::IsDisplayScript(type->GetName());
+			});
+		}
+
 		void Keep(RE::FormID a_id, RE::NiNode* a_root, const Gem& a_gem, RE::ShadowSceneNode* a_scene, const Gems::Settings& a_s)
 		{
 			auto& kept = gKept[a_id];
@@ -598,7 +619,7 @@ namespace Plugin
 			const auto lighting = LightingFound();
 			// an ENB's own particle lights shine only while an ENB runs - settings files left behind light nothing
 			const bool  ownLights = (lighting == Lighting::kEnb && EnbRunningFound()) || (lighting == Lighting::kShaders && !gParticleTextures.empty());
-			std::size_t leftToOwn = 0;
+			std::size_t leftToOwn = 0, onShow = 0;
 			struct Candidate
 			{
 				RE::FormID  id;
@@ -617,6 +638,10 @@ namespace Plugin
 				if (it->second.needsSoul && a_ref->extraList.GetSoulLevel() == RE::SOUL_LEVEL::kNone) {
 					return RE::BSContainer::ForEachResult::kContinue;
 				}
+				if (OnShow(a_ref)) {
+					++onShow;
+					return RE::BSContainer::ForEachResult::kContinue;
+				}
 				auto*      model = a_ref->Get3D();
 				auto*      root = model ? model->AsNode() : nullptr;
 				const auto id = a_ref->GetFormID();
@@ -628,15 +653,16 @@ namespace Plugin
 					return RE::BSContainer::ForEachResult::kContinue;
 				}
 				// a gem that holds our light already counts as a fifth nearer, so two gems at the kMaxLights edge do not swap lights
-				// four times a second as she walks (the code review 2026-10-19)
+				// four times a second as she walks
 				const auto held = gKept.find(id);
 				const bool lit = held != gKept.end() && held->second.light && held->second.root.get() == root;
 				candidates.push_back({ id, root, &it->second, a_ref->GetPosition().GetSquaredDistance(here) * (lit ? 0.64f : 1.0f) });
 				return RE::BSContainer::ForEachResult::kContinue;
 			});
 			gOwnLightNow = leftToOwn;
-			// the nearest kMaxLights gems keep a light: a shop, a stash or the Soul Cairn would otherwise hang one on every gem in reach
-			// (review 2026-10-19); a farther gem is let go below and takes a light again when it is among the nearest
+			gOnShowNow = onShow;
+			// the nearest kMaxLights gems keep a light: a shop, a stash or the Soul Cairn would otherwise hang one on every gem in reach;
+			// a farther gem is let go below and takes a light again when it is among the nearest
 			if (candidates.size() > kMaxLights) {
 				std::ranges::nth_element(candidates, candidates.begin() + kMaxLights, {}, &Candidate::distance);
 				candidates.resize(kMaxLights);
@@ -854,8 +880,8 @@ namespace Plugin
 			families += std::format(R"({}"{}":{})", families.empty() ? "" : ",", name, n);
 		}
 		return std::format(
-			R"({{"gemForms":{},"litByLook":{{{}}},"rustic":"{}","leftTo":{{"emissiveSoulGems":{},"lightPlacer":{},"reLight":{},"ownLightNearYou":{}}},"particleLightConfigs":{},"displays":{},"displaysDark":{},"lightsNow":{},"lightsMade":{},"lights":[{}]}})",
-			gGems.size(), families, gRustic, gLeftTo[1], gLeftTo[2], gLeftTo[3], gOwnLightNow.load(), gParticleTextures.size(), gDisplays.size(),
-			gDisplaysDark.load(), gKept.size(), gMade.load(), lights);
+			R"({{"gemForms":{},"litByLook":{{{}}},"rustic":"{}","leftTo":{{"emissiveSoulGems":{},"lightPlacer":{},"reLight":{},"ownLightNearYou":{}}},"onShowNearYou":{},"particleLightConfigs":{},"displays":{},"displaysDark":{},"lightsNow":{},"lightsMade":{},"lights":[{}]}})",
+			gGems.size(), families, gRustic, gLeftTo[1], gLeftTo[2], gLeftTo[3], gOwnLightNow.load(), gOnShowNow.load(), gParticleTextures.size(),
+			gDisplays.size(), gDisplaysDark.load(), gKept.size(), gMade.load(), lights);
 	}
 }
