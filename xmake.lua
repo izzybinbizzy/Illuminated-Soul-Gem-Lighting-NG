@@ -25,10 +25,12 @@ includes("lib/commonlibsse-ng")
 
 -- DevBench replies and Light Placer's configs are JSON (MIT-licensed library; the version CommonLib pins for its own option)
 add_requires("nlohmann_json v3.12.0")
+-- a gem model's color is read off its textures at data load (Microsoft's DirectXTex, MIT-licensed; CPU decoding only)
+add_requires("directxtex 2025.07", { configs = { dx11 = false, dx12 = false, runtimes = "MT" } })
 
 target("IlluminatedSoulGems", function()
     add_deps("commonlibsse-ng")
-    add_packages("nlohmann_json")
+    add_packages("nlohmann_json", "directxtex")
     add_defines("NOMINMAX")  -- windows.h min/max macros break std::min/max and numeric_limits::max
     add_rules("commonlibsse-ng.plugin", {
         name = "IlluminatedSoulGems",

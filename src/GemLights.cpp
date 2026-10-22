@@ -30,6 +30,7 @@
 
 #include "Plugin.h"
 
+#include <DirectXTex.h>
 #include <nlohmann/json.hpp>
 
 namespace Plugin
@@ -182,6 +183,88 @@ namespace Plugin
 			const auto plugin = Lower(file->GetFilename());
 			const auto local = a_form->GetLocalFormID();
 			return std::ranges::any_of(a_claims.forms, [&](const std::string& a_token) { return Gems::TokenNamesForm(a_token, plugin, local); });
+		}
+
+		// ---------------------------------------------------------- a gem model's own color, read once per model at data load
+		// The pixels of a texture the game can open (loose or in an archive) into a_sum: a mip level near 64 pixels wide is enough
+		// for a mean color, and decoding it costs little. False when the file cannot be read or decoded.
+		bool AddTexturePixels(std::string a_path, Gems::ColorSum& a_sum)
+		{
+			std::ranges::replace(a_path, '/', '\\');
+			if (!Lower(a_path).starts_with("textures\\")) {
+				a_path.insert(0, "textures\\");
+			}
+			RE::BSResourceNiBinaryStream stream(a_path);
+			const auto*                  source = stream.good() ? stream.stream.get() : nullptr;
+			if (!source) {
+				return false;
+			}
+			std::vector<std::uint8_t> bytes;
+			std::vector<std::uint8_t> chunk(65536);
+			for (std::uint64_t got = 0; source->DoRead(chunk.data(), chunk.size(), got) == RE::BSResource::ErrorCode::kNone && got > 0;) {
+				bytes.insert(bytes.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(got));
+			}
+			DirectX::TexMetadata  meta{};
+			DirectX::ScratchImage loaded;
+			if (bytes.empty() || FAILED(DirectX::LoadFromDDSMemory(bytes.data(), bytes.size(), DirectX::DDS_FLAGS_NONE, &meta, loaded))) {
+				return false;
+			}
+			std::size_t mip = 0;
+			while (mip + 1 < meta.mipLevels && (meta.width >> mip) > 64) {
+				++mip;
+			}
+			const auto* image = loaded.GetImage(mip, 0, 0);
+			if (!image) {
+				return false;
+			}
+			DirectX::ScratchImage rgba;
+			const auto            hr = DirectX::IsCompressed(image->format) ?
+			                               DirectX::Decompress(*image, DXGI_FORMAT_R8G8B8A8_UNORM, rgba) :
+			                               DirectX::Convert(*image, DXGI_FORMAT_R8G8B8A8_UNORM, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, rgba);
+			const auto*           pixels = SUCCEEDED(hr) ? rgba.GetImage(0, 0, 0) : nullptr;
+			if (!pixels) {
+				return false;
+			}
+			for (std::size_t y = 0; y < pixels->height; ++y) {
+				const auto* row = pixels->pixels + y * pixels->rowPitch;
+				for (std::size_t x = 0; x < pixels->width; ++x) {
+					a_sum.Add(row[x * 4], row[x * 4 + 1], row[x * 4 + 2], row[x * 4 + 3]);
+				}
+			}
+			return true;
+		}
+
+		// the color a gem model shows: the diffuse textures of its lit shapes (the gem itself; an effect-shader glow shell is
+		// left out). Read through the game's own model loader, once per model; none on VR (the loader's address is SE / AE only)
+		// or when nothing in it carries a color - the caller keeps the table's color then
+		std::optional<Gems::Rgb> ModelColor(std::string_view a_model)
+		{
+			static std::unordered_map<std::string, std::optional<Gems::Rgb>> read;
+			if (REL::Module::IsVR() || a_model.empty()) {
+				return std::nullopt;
+			}
+			const auto [it, added] = read.try_emplace(Gems::NormalPath(a_model));
+			if (!added) {
+				return it->second;
+			}
+			RE::NiPointer<RE::NiNode> root;
+			const std::string         path(a_model);
+			if (RE::BSModelDB::Demand(path.c_str(), root, RE::BSModelDB::DBTraits::ArgsType{}) != RE::BSResource::ErrorCode::kNone || !root) {
+				return std::nullopt;
+			}
+			Gems::ColorSum                  sum;
+			std::unordered_set<std::string> textures;
+			RE::BSVisit::TraverseScenegraphGeometries(root.get(), [&](RE::BSGeometry* a_geometry) {
+				auto*       shader = netimmerse_cast<RE::BSLightingShaderProperty*>(a_geometry ? a_geometry->GetGeometryRuntimeData().shaderProperty.get() : nullptr);
+				auto*       material = shader ? static_cast<RE::BSLightingShaderMaterialBase*>(shader->material) : nullptr;
+				const char* diffuse = material && material->textureSet ? material->textureSet->GetTexturePath(RE::BSTextureSet::Textures::kDiffuse) : nullptr;
+				if (diffuse && *diffuse && textures.insert(Lower(diffuse)).second && !AddTexturePixels(diffuse, sum)) {
+					SKSE::log::info("gems: {} - its texture {} could not be read", a_model, diffuse);
+				}
+				return RE::BSVisit::BSVisitControl::kContinue;
+			});
+			it->second = sum.Result();
+			return it->second;
 		}
 
 		[[nodiscard]] Gems::Kind KindOfCapacity(RE::SOUL_LEVEL a_level) noexcept
@@ -645,7 +728,7 @@ namespace Plugin
 		}
 		const auto* azurasStar = dh->LookupForm(kAzurasStar, "Skyrim.esm");
 		const auto* blackStar = dh->LookupForm(kBlackStar, "Skyrim.esm");
-		std::size_t records = 0, lit = 0;
+		std::size_t records = 0, lit = 0, fromModel = 0;
 		for (auto* gem : dh->GetFormArray<RE::TESSoulGem>()) {
 			if (!gem) {
 				continue;
@@ -660,6 +743,12 @@ namespace Plugin
 				look = Gems::Look{ Gems::Family::kStar, Gems::Kind::kStar, gem == azurasStar ? Gems::kAzurasStarRgb : Gems::kBlackStarRgb };
 			} else if (!look || look->family == Gems::Family::kSoulCairn) {
 				look = Gems::GameLook(KindOfCapacity(gem->GetMaximumCapacity()), gem->CanHoldNPCSoul());
+			}
+			if (Gems::ColorFromModel(look->family)) {
+				if (const auto own = ModelColor(model)) {
+					look->rgb = *own;
+					++fromModel;
+				}
 			}
 			const bool always = star || holds || look->family == Gems::Family::kNamed;
 			if (Take(gem, model, Gem{ *look, !always }, others) && always) {
@@ -693,6 +782,13 @@ namespace Plugin
 			gLeftTo[static_cast<std::size_t>(kEmissive)], gLeftTo[static_cast<std::size_t>(kLightPlacer)],
 			gLeftTo[static_cast<std::size_t>(kReLight)], others.lightPlacer ? "loaded" : "not loaded", others.reLight ? "loaded" : "not loaded",
 			gParticleTextures.size());
+		SKSE::log::info("gems: {} soul gem record(s) wear the color read off their own model", fromModel);
+		for (const auto& [form, gem] : gGems) {
+			if (const auto* soulGem = form->As<RE::TESModel>(); soulGem && form->Is(RE::FormType::SoulGem) && Gems::ColorFromModel(gem.look.family)) {
+				const char* model = soulGem->GetModel();
+				SKSE::log::info("  {:08X} {} | {} | {},{},{}", form->GetFormID(), form->GetName(), model ? model : "", gem.look.rgb[0], gem.look.rgb[1], gem.look.rgb[2]);
+			}
+		}
 	}
 
 	void InstallFrame()
@@ -715,6 +811,17 @@ namespace Plugin
 	void ApplyNow()
 	{
 		gSinceScan = kScanEvery;  // the next frame looks around again and draws every light with the settings as they are now
+		RefreshLights();
+	}
+
+	void RefreshLights()
+	{
+		const auto s = SettingsNow();
+		for (auto& [id, kept] : gKept) {
+			if (kept.light && kept.gem) {
+				Follow(kept, s);
+			}
+		}
 	}
 
 	std::size_t GemLightCount() { return gCount.load(); }

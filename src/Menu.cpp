@@ -58,7 +58,19 @@ namespace Plugin
 			}
 		}
 
-		// a percent slider; stored while dragged (the lights follow live), saved when let go
+		// the lights already hung take a moved slider at once: the per-frame update stops while the menu pauses the game, a task does not
+		void Live()
+		{
+			static std::atomic<bool> queued{ false };
+			if (!queued.exchange(true) && !Later("menu slider", []() {
+					queued = false;
+					RefreshLights();
+				})) {
+				queued = false;
+			}
+		}
+
+		// a percent slider; applied while dragged, saved when let go
 		void Percent(const char* a_label, int Gems::Settings::* a_field, int a_min, int a_max, const char* a_tip)
 		{
 			auto s = SettingsNow();
@@ -69,6 +81,7 @@ namespace Plugin
 				if (v != s.*a_field) {
 					s.*a_field = v;
 					SetSettings(s);
+					Live();
 				}
 			}
 			if (IsItemDeactivatedAfterEdit()) {
