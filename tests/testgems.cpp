@@ -29,7 +29,7 @@ namespace
 #define CHECK(x) Check((x), #x, __LINE__)
 
 	// the fewest checks a whole run makes (raise it when checks are added; lower it only when checks are removed on purpose)
-	constexpr int kFloor = 104;
+	constexpr int kFloor = 109;
 
 	using namespace Gems;
 
@@ -167,6 +167,16 @@ namespace
 		CHECK(EmissiveModel("clutter\\daedric\\azurastar.nif"));
 		CHECK(EmissiveModel("clutter\\soulgem\\soulgempetty01.nif"));
 		CHECK(!EmissiveModel("clutter\\soulgem\\soulgemgrand01full.nif"));
+		CHECK(EmissiveModel("Meshes/Clutter/SoulGem/SoulGemPetty01.nif"));
+		// a replacer's copy in another folder is not Emissive Soul Gems' (Light Placer matches whole paths)
+		CHECK(!EmissiveModel("Clutter\\SoulGem\\full\\SoulGemGrand01.nif"));
+		CHECK(!EmissiveModel("Clutter\\SoulGem\\Filled\\SoulGemBlack01.nif"));
+		CHECK(OwnerOf("Clutter\\SoulGem\\full\\SoulGemGrand01.nif", Family::kGame, true, false, false) == Owner::kThisMod);
+		// only Rustic's own names take Rustic's look, never another replacer's "..01_full.nif"
+		CHECK(!LookOfModel("clutter\\soulgem\\soulgemgrand01_full.nif", true));
+		CHECK(!LookOfModel("Clutter\\SoulGem\\Filled\\SoulGemGrand_full.nif", true));
+		const auto rusticGrand = LookOfModel("Meshes/Clutter/SoulGem/SoulGemGrand_full.nif", true);
+		CHECK(rusticGrand && rusticGrand->family == Family::kRustic);
 		CHECK(OwnerOf("Clutter\\SoulGem\\SoulGemGrand_full.nif", Family::kRustic, true, false, false) == Owner::kEmissive);
 		CHECK(OwnerOf("Clutter\\SoulGem\\SoulGemGrand_full.nif", Family::kRustic, false, false, false) == Owner::kThisMod);
 		CHECK(OwnerOf("Clutter\\SoulGem\\SoulGemGrand_full.nif", Family::kRustic, false, false, true) == Owner::kThisMod);

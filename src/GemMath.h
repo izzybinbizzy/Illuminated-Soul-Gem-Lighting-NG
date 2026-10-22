@@ -292,7 +292,8 @@ namespace Gems
 		if (bare.find("01full") != std::string::npos) {  // Praedy's filled gems (CS Light's part-filled ones too: "...01fullcommon.nif")
 			return Look{ Family::kPraedys, *size, SizeRgb(kPraedysRgb, *size) };
 		}
-		if (a_rusticLoaded && bare.ends_with("_full.nif")) {
+		// Rustic's own models only ("clutter\soulgem\soulgemgrand_full.nif"): another replacer's "..01_full.nif" or a copy in another folder is not
+		if (a_rusticLoaded && path == std::string("clutter\\soulgem\\soulgem").append(kSizeWords[static_cast<std::size_t>(*size)]).append("_full.nif")) {
 			return Look{ Family::kRustic, *size, SizeRgb(kRusticRgb, *size) };
 		}
 		return std::nullopt;
@@ -328,15 +329,18 @@ namespace Gems
 	// vanilla/enb/cs without light placer but not the light placer configs they use", "i like that guy i dont want to step on
 	// his mod". So with Light Placer loaded these models are his, whether or not his mod is installed; without Light Placer
 	// (which his mod needs) this mod lights them.
-	inline constexpr std::array<std::string_view, 14> kEmissiveModels{ "soulgempetty01.nif", "soulgempetty_full.nif",
-		"soulgemlesser01.nif", "soulgemlesser_full.nif", "soulgemcommon01.nif", "soulgemcommon_full.nif", "soulgemgreater01.nif",
-		"soulgemgreater_full.nif", "soulgemgrand01.nif", "soulgemgrand_full.nif", "soulgemblack01.nif", "soulgemblack_full.nif",
-		"azurastar.nif", "azurastarlite.nif" };
+	// Whole paths, as Light Placer matches them: a replacer's copy in another folder (MLP's and Vayura's "full\", Spherical's
+	// "Filled\") is not his - its own Light Placer file, if any, claims it
+	inline constexpr std::array<std::string_view, 14> kEmissiveModels{ "clutter\\soulgem\\soulgempetty01.nif",
+		"clutter\\soulgem\\soulgempetty_full.nif", "clutter\\soulgem\\soulgemlesser01.nif", "clutter\\soulgem\\soulgemlesser_full.nif",
+		"clutter\\soulgem\\soulgemcommon01.nif", "clutter\\soulgem\\soulgemcommon_full.nif", "clutter\\soulgem\\soulgemgreater01.nif",
+		"clutter\\soulgem\\soulgemgreater_full.nif", "clutter\\soulgem\\soulgemgrand01.nif", "clutter\\soulgem\\soulgemgrand_full.nif",
+		"clutter\\soulgem\\soulgemblack01.nif", "clutter\\soulgem\\soulgemblack_full.nif", "clutter\\daedric\\azurastar.nif",
+		"clutter\\daedric\\azurastarlite.nif" };
 
 	[[nodiscard]] inline bool EmissiveModel(std::string_view a_model)
 	{
-		const auto bare = BareName(a_model);
-		return std::ranges::find(kEmissiveModels, bare) != kEmissiveModels.end();
+		return std::ranges::find(kEmissiveModels, NormalPath(a_model)) != kEmissiveModels.end();
 	}
 
 	// the gems this mod's RE::Light configs light (SKSE\Plugins\ReLight\Configs\Illuminated - Soul Gem Lighting NG\): Praedy's
