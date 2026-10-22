@@ -217,11 +217,15 @@ namespace Plugin
 			if (!image) {
 				return false;
 			}
+			// already 8-bit RGBA: read as it is (DirectXTex refuses a conversion to the same format)
 			DirectX::ScratchImage rgba;
-			const auto            hr = DirectX::IsCompressed(image->format) ?
-			                               DirectX::Decompress(*image, DXGI_FORMAT_R8G8B8A8_UNORM, rgba) :
-			                               DirectX::Convert(*image, DXGI_FORMAT_R8G8B8A8_UNORM, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, rgba);
-			const auto*           pixels = SUCCEEDED(hr) ? rgba.GetImage(0, 0, 0) : nullptr;
+			const DirectX::Image* pixels = image;
+			if (image->format != DXGI_FORMAT_R8G8B8A8_UNORM) {
+				const auto result = DirectX::IsCompressed(image->format) ?
+				                        DirectX::Decompress(*image, DXGI_FORMAT_R8G8B8A8_UNORM, rgba) :
+				                        DirectX::Convert(*image, DXGI_FORMAT_R8G8B8A8_UNORM, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, rgba);
+				pixels = SUCCEEDED(result) ? rgba.GetImage(0, 0, 0) : nullptr;
+			}
 			if (!pixels) {
 				return false;
 			}
