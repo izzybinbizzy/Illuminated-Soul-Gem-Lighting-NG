@@ -181,6 +181,10 @@ namespace
 		CHECK(!LookOfModel("_pgpatcher_dups\\1\\dlc01\\clutter\\dlc01soulgemchunk01.nif", false));  // a decor copy is not the Soul Cairn's piece
 		CHECK(LookOfModel("meshes\\dlc01\\clutter\\dlc01soulgemchunk01.nif", false)->family == Family::kSoulCairn);
 		// what RE::Light's keys reach: a decor copy of a piece, Praedy's filled gems; never the game's own gem models
+		CHECK(IsDisplayScript("dbm_dynamicdisplayscript"));
+		CHECK(IsDisplayScript("MuseumDisplayCaseScript"));
+		CHECK(!IsDisplayScript("defaultDisableHavokOnLoad"));
+		CHECK(!IsDisplayScript("dunYngvildSoulgemScript"));
 		CHECK(ReLightKeyed("_pgpatcher_dups\\1\\dlc01\\clutter\\dlc01soulgemchunk01.nif"));
 		CHECK(ReLightKeyed("clutter\\soulgem\\soulgemgrand01fullcommon.nif"));
 		CHECK(!ReLightKeyed("_pgpatcher_dups\\1\\clutter\\soulgem\\soulgemcommon01.nif"));
