@@ -174,6 +174,9 @@ namespace
 		CHECK(OwnerOf("Clutter\\SoulGem\\full\\SoulGemGrand01.nif", Family::kGame, true, false, false) == Owner::kThisMod);
 		// only Rustic's own names take Rustic's look, never another replacer's "..01_full.nif"
 		CHECK(!LookOfModel("clutter\\soulgem\\soulgemgrand01_full.nif", true));
+		CHECK(!LookOfModel("Clutter\\SoulGem\\Filled\\SoulGemGrand_full.nif", true));
+		const auto rusticGrand = LookOfModel("Meshes/Clutter/SoulGem/SoulGemGrand_full.nif", true);
+		CHECK(rusticGrand && rusticGrand->family == Family::kRustic);
 		CHECK(OwnerOf("Clutter\\SoulGem\\SoulGemGrand_full.nif", Family::kRustic, true, false, false) == Owner::kEmissive);
 		CHECK(OwnerOf("Clutter\\SoulGem\\SoulGemGrand_full.nif", Family::kRustic, false, false, false) == Owner::kThisMod);
 		CHECK(OwnerOf("Clutter\\SoulGem\\SoulGemGrand_full.nif", Family::kRustic, false, false, true) == Owner::kThisMod);

@@ -292,8 +292,8 @@ namespace Gems
 		if (bare.find("01full") != std::string::npos) {  // Praedy's filled gems (CS Light's part-filled ones too: "...01fullcommon.nif")
 			return Look{ Family::kPraedys, *size, SizeRgb(kPraedysRgb, *size) };
 		}
-		// Rustic's own names only ("soulgemgrand_full.nif"): Immersive's, Ultimate's and Crystalline's "soulgemgrand01_full.nif" are not
-		if (a_rusticLoaded && bare == std::string("soulgem").append(kSizeWords[static_cast<std::size_t>(*size)]).append("_full.nif")) {
+		// Rustic's own models only ("clutter\soulgem\soulgemgrand_full.nif"): another replacer's "..01_full.nif" or a copy in another folder is not
+		if (a_rusticLoaded && path == std::string("clutter\\soulgem\\soulgem").append(kSizeWords[static_cast<std::size_t>(*size)]).append("_full.nif")) {
 			return Look{ Family::kRustic, *size, SizeRgb(kRusticRgb, *size) };
 		}
 		return std::nullopt;
