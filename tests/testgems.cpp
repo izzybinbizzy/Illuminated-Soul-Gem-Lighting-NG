@@ -29,7 +29,7 @@ namespace
 #define CHECK(x) Check((x), #x, __LINE__)
 
 	// the fewest checks a whole run makes (raise it when checks are added; lower it only when checks are removed on purpose)
-	constexpr int kFloor = 109;
+	constexpr int kFloor = 118;
 
 	using namespace Gems;
 
@@ -51,12 +51,12 @@ namespace
 
 	void Light()
 	{
-		// a grand gem on Community Shaders reaches about 47 units (half the 95 of Illuminated's rows before 2026-10-19)
+		// a grand gem on Community Shaders reaches about 95 units, twice the half-reach row (47.5)
 		const auto& grand = kStrength[static_cast<std::size_t>(Kind::kGrand)];
-		CHECK(Near(IslReach(grand.fade, grand.cutoff), 47.5f, 0.5f));
-		CHECK(Near(IslReach(0.85f, 0.3691f), 95.0f, 0.5f));  // the rows before: twice as far
+		CHECK(Near(IslReach(grand.fade, grand.cutoff), 95.0f, 0.5f));
+		CHECK(Near(IslReach(0.5472f, 0.95f), 47.5f, 0.5f));  // the half-reach row
 		const auto& petty = kStrength[static_cast<std::size_t>(Kind::kPetty)];
-		CHECK(Near(IslReach(petty.fade, petty.cutoff), 22.5f, 0.5f));
+		CHECK(Near(IslReach(petty.fade, petty.cutoff), 45.0f, 0.5f));
 		CHECK(IslReach(0.5f, 0.0f) == 0.0f);
 		CHECK(IslReach(0.0f, 0.5f) == 0.0f);
 		CHECK(Near(CutoffFor(grand.fade, IslReach(grand.fade, grand.cutoff)), grand.cutoff, 0.001f));
@@ -86,7 +86,7 @@ namespace
 		const auto& grand = kStrength[static_cast<std::size_t>(Kind::kGrand)];
 		// Community Shaders, as built: the record's numbers
 		auto s = ShownFor(grand, true, 1.0f, 1.0f);
-		CHECK(Near(s.fade, grand.fade) && Near(s.cutoff, grand.cutoff) && Near(s.radius, 47.5f, 0.5f));
+		CHECK(Near(s.fade, grand.fade) && Near(s.cutoff, grand.cutoff) && Near(s.radius, 95.0f, 0.5f));
 		// Brightness changes how bright, not how far
 		auto b = ShownFor(grand, true, 2.0f, 1.0f);
 		CHECK(Near(b.fade, grand.fade * 2.0f));
@@ -98,7 +98,7 @@ namespace
 		CHECK(r.radius > s.radius * 1.4f);
 		// on ENB / Vanilla the same light drawn plain: a longer radius, a little more fade, no cutoff
 		auto plain = ShownFor(grand, false, 1.0f, 1.0f);
-		CHECK(Near(plain.fade, grand.fade * 1.14f) && Near(plain.radius, 47.5f * 178.0f / 133.0f, 1.0f) && plain.cutoff == 0.0f);
+		CHECK(Near(plain.fade, grand.fade * 1.14f) && Near(plain.radius, 95.0f * 178.0f / 133.0f, 1.0f) && plain.cutoff == 0.0f);
 		auto plainReach = ShownFor(grand, false, 1.0f, 0.5f);
 		CHECK(Near(plainReach.radius, plain.radius / 2.0f, 1.0f));
 		CHECK(ShownFor(grand, false, 0.0f, 1.0f).fade == 0.0f);
@@ -114,6 +114,39 @@ namespace
 			CHECK(kStrength[i].fade > kStrength[i - 1].fade);
 		}
 		CHECK(kStrength[static_cast<std::size_t>(Kind::kStar)].fade > grand.fade);
+	}
+
+	void ModelColors()
+	{
+		ColorSum none;
+		CHECK(!none.Result());
+		none.Add(128, 128, 128);  // grey
+		none.Add(255, 255, 255);  // white
+		none.Add(10, 2, 4);       // nearly black
+		none.Add(255, 0, 0, 0);   // see-through
+		CHECK(!none.Result());
+		// one colored pixel: its hue, scaled to a top channel of 255
+		ColorSum one;
+		one.Add(120, 60, 30);
+		CHECK(one.Result() == (Rgb{ 255, 128, 64 }));
+		// grey pixels beside it change nothing
+		one.Add(200, 200, 200);
+		CHECK(one.Result() == (Rgb{ 255, 128, 64 }));
+		// a strongly colored pixel outweighs a pale one
+		ColorSum mix;
+		mix.Add(255, 0, 0);
+		mix.Add(200, 190, 255);
+		const auto m = mix.Result();
+		CHECK(m && (*m)[0] == 255 && (*m)[1] < 60);
+		// half alpha weighs half
+		ColorSum alpha;
+		alpha.Add(0, 0, 255, 255);
+		alpha.Add(0, 255, 0, 128);
+		const auto a = alpha.Result();
+		CHECK(a && (*a)[2] == 255 && (*a)[1] > 120 && (*a)[1] < 135);
+		// the families read off the model, and the ones that keep their own rows
+		CHECK(ColorFromModel(Family::kGame) && ColorFromModel(Family::kRustic));
+		CHECK(!ColorFromModel(Family::kPraedys) && !ColorFromModel(Family::kStar) && !ColorFromModel(Family::kNamed) && !ColorFromModel(Family::kSoulCairn));
 	}
 
 	void Looks()
@@ -230,6 +263,7 @@ int main()
 	Text();
 	Light();
 	Strengths();
+	ModelColors();
 	Looks();
 	Owners();
 	Tokens();

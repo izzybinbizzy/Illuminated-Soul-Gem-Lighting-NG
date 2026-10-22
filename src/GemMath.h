@@ -5,7 +5,7 @@
 // The game-free part, so tests/testgems.cpp checks it off the game (PC Runner\plugin build.py builds and runs it):
 //   text      Lower, SameText, Trim, BareName - a model path as the plugin compares it
 //   light     CutoffFor, IslReach, PlainAt - Illuminated's LightMath.h, the same numbers; KeyAt - Truman's KeyframeSequence maths
-//   gems      which gem a model is, its color and its strength (the strengths are Illuminated's soul gem rows at half reach)
+//   gems      which gem a model is, its color (ColorSum: off its texture pixels) and its strength
 //   settings  IlluminatedSoulGems\Settings.ini as one table, its reader and its writer
 
 #pragma once
@@ -182,18 +182,18 @@ namespace Gems
 	{
 		float fade{ 0.0f }, cutoff{ 0.0f };
 	};
-	// Illuminated's soul gem rows (Illuminated Master r0016, at half the reach they had - his report 2026-10-19): on Community
-	// Shaders a petty gem reaches about 22 units, a grand one about 47, a star about 60
+	// Illuminated's soul gem rows at half reach, twice as bright and twice as far (a test at four times and three times lit the
+	// whole room): on Community Shaders a petty gem reaches about 45 units, a grand one about 95, a star about 120
 	inline constexpr std::array<Strength, kKinds> kStrength{ {
-		{ 0.123f, 0.9503f },   // petty
-		{ 0.1836f, 0.9502f },  // lesser
-		{ 0.2563f, 0.95f },    // common
-		{ 0.3881f, 0.95f },    // greater
-		{ 0.5472f, 0.95f },    // grand
-		{ 0.5472f, 0.95f },    // black
-		{ 0.5472f, 0.95f },    // a named quest gem
-		{ 0.8729f, 0.95f },    // Azura's Star, the Black Star
-		{ 0.8729f, 0.95f },    // the Soul Cairn's gem bowl and chunks
+		{ 0.246f, 0.4752f },   // petty
+		{ 0.3672f, 0.4751f },  // lesser
+		{ 0.5126f, 0.475f },   // common
+		{ 0.7762f, 0.475f },   // greater
+		{ 1.0944f, 0.475f },   // grand
+		{ 1.0944f, 0.475f },   // black
+		{ 1.0944f, 0.475f },   // a named quest gem
+		{ 1.7458f, 0.475f },   // Azura's Star, the Black Star
+		{ 1.7458f, 0.475f },   // the Soul Cairn's gem bowl and chunks
 	} };
 
 	// whose gem it is: what decides its color
@@ -315,6 +315,51 @@ namespace Gems
 			}
 		}
 		return SizeOfName(bare) && bare.find("01full") != std::string::npos;
+	}
+
+	// A gem model's color off its texture pixels, so a replacer at the game's own paths shows its own colors: each pixel weighs by
+	// its chroma (top channel minus bottom one) times its alpha - grey, white, see-through and nearly black pixels count for
+	// nothing - and the mean is scaled so its top channel is 255. No colored pixel = no color.
+	class ColorSum
+	{
+	public:
+		void Add(std::uint8_t a_r, std::uint8_t a_g, std::uint8_t a_b, std::uint8_t a_a = 255) noexcept
+		{
+			const int top = (std::max)({ a_r, a_g, a_b }), bottom = (std::min)({ a_r, a_g, a_b });
+			if (top < kDarkTop || top == bottom || a_a == 0) {
+				return;
+			}
+			const double w = static_cast<double>(top - bottom) * (a_a / 255.0);
+			sum[0] += a_r * w;
+			sum[1] += a_g * w;
+			sum[2] += a_b * w;
+			weight += w;
+		}
+
+		[[nodiscard]] std::optional<Rgb> Result() const noexcept
+		{
+			if (weight <= 0.0) {
+				return std::nullopt;
+			}
+			const double top = (std::max)({ sum[0], sum[1], sum[2] }) / weight;  // > 0: a colored pixel has a channel above 0
+			Rgb          out{};
+			for (std::size_t i = 0; i < 3; ++i) {
+				out[i] = static_cast<std::uint8_t>((std::min)(255.0, std::round(sum[i] / weight * 255.0 / top)));
+			}
+			return out;
+		}
+
+	private:
+		static constexpr int  kDarkTop = 16;
+		std::array<double, 3> sum{};
+		double                weight{ 0.0 };
+	};
+
+	// the families whose color is read off the gem's own model in game; Praedy's pink was settled by eye, and the stars, the
+	// named gems and the Soul Cairn keep their own rows
+	[[nodiscard]] inline bool ColorFromModel(Family a_family) noexcept
+	{
+		return a_family == Family::kGame || a_family == Family::kRustic;
 	}
 
 	// the game's own look for a gem of this size (a_black: it holds black souls)
