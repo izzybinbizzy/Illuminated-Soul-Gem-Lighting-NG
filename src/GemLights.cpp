@@ -448,9 +448,9 @@ namespace Plugin
 			return found;
 		}
 
-		// does this placed gem's model carry a light of its own that shines in this game: on ENB an ENB particle light (a shape named
-		// "EnbParticleLight..." or one drawing an ENB light texture - fxglowENB, glowsoft01_enbl ...); on Community Shaders a shape whose
-		// texture a particle-light config names. The game's own lighting draws neither
+		// does this placed gem's model carry a light of its own that shines in this game: on ENB a shape drawing an ENB light texture
+		// (fxglowENB, glowsoft01_enbl ...) - a shape only NAMED "EnbParticleLight..." over a plain texture lights nothing there; on
+		// Community Shaders a shape whose texture a particle-light config names. The game's own lighting draws neither
 		[[nodiscard]] bool CarriesOwnLight(const RE::TESBoundObject* a_base, RE::NiAVObject* a_root, Lighting a_lighting)
 		{
 			const auto [it, added] = gOwnLight.try_emplace(a_base, false);
@@ -458,8 +458,7 @@ namespace Plugin
 				RE::BSVisit::TraverseScenegraphObjects(a_root, [&](RE::NiAVObject* a_object) {
 					const auto texture = EffectTexture(a_object);
 					const bool particle = !texture.empty() && gParticleTextures.contains(texture);
-					const bool enb = a_lighting == Lighting::kEnb &&
-					                 (particle || std::ranges::find(kEnbLightTextures, texture) != kEnbLightTextures.end() || (a_object && Lower(a_object->name.c_str()).starts_with("enbparticlelight")));
+					const bool enb = a_lighting == Lighting::kEnb && (particle || std::ranges::find(kEnbLightTextures, texture) != kEnbLightTextures.end());
 					if (enb || (a_lighting == Lighting::kShaders && particle)) {
 						it->second = true;
 						return RE::BSVisit::BSVisitControl::kStop;
