@@ -7,8 +7,11 @@
 //   light     CutoffFor, IslReach, PlainAt - Illuminated's LightMath.h, the same numbers; KeyAt - Truman's KeyframeSequence maths
 //   gems      which gem a model is, its color (ColorSum: off its texture pixels) and its strength
 //   settings  SoulGemHub\Settings.ini as one table, its reader and its writer
+//   permits   Fingerprint, BlockedModOf - the gem mods not lit until their authors allow it (GemPermissions.h)
 
 #pragma once
+
+#include "GemPermissions.h"
 
 #include <algorithm>
 #include <array>
@@ -20,6 +23,7 @@
 #include <iterator>
 #include <optional>
 #include <ostream>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -384,7 +388,7 @@ namespace Gems
 		return std::ranges::find(kEmissiveModels, NormalPath(a_model)) != kEmissiveModels.end();
 	}
 
-	// the gems this mod's RE::Light configs light (SKSE\Plugins\ReLight\Configs\Soul Gem Hub\): Praedy's
+	// the gems this mod's RE::Light configs light (SKSE\Plugins\ReLight\Configs\Illuminated - Soul Gem Hub\): Praedy's
 	// filled gems, the named quest gems and the Soul Cairn's pieces - each keyed by its own model (the Soul Essence Gem by its
 	// record). With RE::Light loaded the plugin leaves these to it; the gems that share the game's model (or are Emissive Soul
 	// Gems' models) have no config, so the plugin lights them itself
@@ -422,6 +426,71 @@ namespace Gems
 			return Owner::kReLight;
 		}
 		return Owner::kThisMod;
+	}
+
+	// ------------------------------------------------------------------ permits
+	// a file's fingerprint: FNV-1a 64 over its first 64 KB, then its size folded in (perm signatures.py hashes the same way)
+	inline constexpr std::size_t kFingerprintHead = 65536;
+
+	// fed a file in pieces, so a large texture never has to sit in memory whole
+	class FingerprintSum
+	{
+	public:
+		void Add(std::span<const std::uint8_t> a_bytes) noexcept
+		{
+			for (const auto b : a_bytes.first(std::min(a_bytes.size(), kFingerprintHead - std::min(_size, kFingerprintHead)))) {
+				_hash = (_hash ^ b) * kPrime;
+			}
+			_size += a_bytes.size();
+		}
+		[[nodiscard]] std::uint64_t Result() const noexcept { return (_hash ^ _size) * kPrime; }
+		[[nodiscard]] std::size_t   Size() const noexcept { return _size; }
+
+	private:
+		static constexpr std::uint64_t kPrime = 0x100000001B3ULL;
+		std::uint64_t                  _hash{ 0xCBF29CE484222325ULL };
+		std::size_t                    _size{ 0 };
+	};
+
+	[[nodiscard]] inline std::uint64_t Fingerprint(std::span<const std::uint8_t> a_bytes) noexcept
+	{
+		FingerprintSum sum;
+		sum.Add(a_bytes);
+		return sum.Result();
+	}
+
+	// a texture path as GemPermissions.h writes it: lower case, below textures\ (a material may name it either way)
+	[[nodiscard]] inline std::string TexturePath(std::string_view a_texture)
+	{
+		std::string out = Lower(a_texture);
+		std::ranges::replace(out, '/', '\\');
+		for (const std::string_view top : { "\\", "data\\", "textures\\" }) {
+			if (out.starts_with(top)) {
+				out.erase(0, top.size());
+			}
+		}
+		return out;
+	}
+
+	// the gem mod a file belongs to while its author has not allowed this mod to light it: by its bytes ...
+	[[nodiscard]] inline std::optional<std::string_view> BlockedModOf(std::uint64_t a_fingerprint) noexcept
+	{
+		const auto it = std::ranges::lower_bound(kBlockedFiles, a_fingerprint, {}, &BlockedFile::hash);
+		if (it == kBlockedFiles.end() || it->hash != a_fingerprint) {
+			return std::nullopt;
+		}
+		return kBlockedMods[it->mod];
+	}
+
+	// ... or by a name only such a mod ships (a model as NormalPath writes it, a texture as TexturePath does), which still
+	// holds after an update of the mod or in another texture size
+	[[nodiscard]] inline std::optional<std::string_view> BlockedModOfPath(std::string_view a_path) noexcept
+	{
+		const auto it = std::ranges::lower_bound(kBlockedPaths, a_path, {}, &BlockedPath::path);
+		if (it == kBlockedPaths.end() || it->path != a_path) {
+			return std::nullopt;
+		}
+		return kBlockedMods[it->mod];
 	}
 
 	[[nodiscard]] inline std::string_view FamilyName(Family a_family) noexcept
@@ -515,7 +584,7 @@ namespace Gems
 
 	inline void WriteSettings(const Settings& a_s, std::ostream& a_out)
 	{
-		a_out << "; Soul Gem Hub - written by its menu (SKSE Menu Framework). Change these in game, not here.\n"
+		a_out << "; Illuminated - Soul Gem Hub - written by its menu (SKSE Menu Framework). Change these in game, not here.\n"
 			  << "[Settings]\nLights=" << (a_s.on ? 1 : 0) << "\nBrightness=" << a_s.brightness << "\nReach=" << a_s.reach
 			  << "\nPulse=" << (a_s.pulse ? 1 : 0) << "\n";
 	}

@@ -112,6 +112,7 @@ namespace Plugin
 		std::unordered_map<const RE::TESBoundObject*, Gem> gGems;      // the gems this plugin lights; read on the main thread after data load
 		std::vector<std::pair<std::string, std::size_t>>   gFamilies;  // the lit gem records by look, for the menu
 		std::array<std::size_t, 4>                         gLeftTo{};  // gem records left to another light mod, by Gems::Owner
+		std::vector<std::pair<std::string, std::size_t>>   gBlocked;   // gem records left unlit by their mod, until its author allows it
 		std::string                                        gRustic;    // which Rustic Soul Gems download is loaded
 
 		// What Light Placer's configs claim (models by their file name, formIDs tokens in lower case), read once when Light Placer
@@ -186,24 +187,54 @@ namespace Plugin
 		}
 
 		// ---------------------------------------------------------- a gem model's own color, read once per model at data load
-		// The pixels of a texture the game can open (loose or in an archive) into a_sum: a mip level near 64 pixels wide is enough
-		// for a mean color, and decoding it costs little. False when the file cannot be read or decoded.
-		bool AddTexturePixels(std::string a_path, Gems::ColorSum& a_sum)
+		// a file the game can open (loose or in an archive) under a_folder ("textures", "meshes"), handed to a_take piece by
+		// piece; false when it cannot be opened
+		template <class F>
+		bool ReadGameFile(std::string a_path, std::string_view a_folder, F&& a_take)
 		{
 			std::ranges::replace(a_path, '/', '\\');
-			if (!Lower(a_path).starts_with("textures\\")) {
-				a_path.insert(0, "textures\\");
+			if (const auto prefix = std::string(a_folder) + "\\"; !Lower(a_path).starts_with(prefix)) {
+				a_path.insert(0, prefix);
 			}
 			RE::BSResourceNiBinaryStream stream(a_path);
 			const auto*                  source = stream.good() ? stream.stream.get() : nullptr;
 			if (!source) {
 				return false;
 			}
-			std::vector<std::uint8_t> bytes;
 			std::vector<std::uint8_t> chunk(65536);
 			for (std::uint64_t got = 0; source->DoRead(chunk.data(), chunk.size(), got) == RE::BSResource::ErrorCode::kNone && got > 0;) {
-				bytes.insert(bytes.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(got));
+				a_take(std::span<const std::uint8_t>(chunk.data(), static_cast<std::size_t>(got)));
 			}
+			return true;
+		}
+
+		// the gem mod a file of the game's belongs to, while its author has not allowed this mod to light it: by its name, else
+		// by its bytes (streamed - only the first 64 KB are hashed, a 4K texture is never held whole)
+		std::optional<std::string_view> BlockedFile(const std::string& a_path, std::string_view a_folder)
+		{
+			if (const auto byName = Gems::BlockedModOfPath(a_folder == "meshes" ? Gems::NormalPath(a_path) : Gems::TexturePath(a_path))) {
+				return byName;
+			}
+			Gems::FingerprintSum sum;
+			if (!ReadGameFile(a_path, a_folder, [&](std::span<const std::uint8_t> a_piece) { sum.Add(a_piece); }) || !sum.Size()) {
+				return std::nullopt;
+			}
+			return Gems::BlockedModOf(sum.Result());
+		}
+
+		[[nodiscard]] const char* DiffuseOf(RE::BSGeometry* a_geometry)
+		{
+			auto* shader = netimmerse_cast<RE::BSLightingShaderProperty*>(a_geometry ? a_geometry->GetGeometryRuntimeData().shaderProperty.get() : nullptr);
+			auto* material = shader ? static_cast<RE::BSLightingShaderMaterialBase*>(shader->material) : nullptr;
+			return material && material->textureSet ? material->textureSet->GetTexturePath(RE::BSTextureSet::Textures::kDiffuse) : nullptr;
+		}
+
+		// The pixels of a texture into a_sum: a mip level near 64 pixels wide is enough for a mean color, and decoding it costs
+		// little. False when the file cannot be read or decoded.
+		bool AddTexturePixels(const std::string& a_path, Gems::ColorSum& a_sum)
+		{
+			std::vector<std::uint8_t> bytes;
+			ReadGameFile(a_path, "textures", [&](std::span<const std::uint8_t> a_piece) { bytes.insert(bytes.end(), a_piece.begin(), a_piece.end()); });
 			DirectX::TexMetadata  meta{};
 			DirectX::ScratchImage loaded;
 			if (bytes.empty() || FAILED(DirectX::LoadFromDDSMemory(bytes.data(), bytes.size(), DirectX::DDS_FLAGS_NONE, &meta, loaded))) {
@@ -259,9 +290,7 @@ namespace Plugin
 			Gems::ColorSum                  sum;
 			std::unordered_set<std::string> textures;
 			RE::BSVisit::TraverseScenegraphGeometries(root.get(), [&](RE::BSGeometry* a_geometry) {
-				auto*       shader = netimmerse_cast<RE::BSLightingShaderProperty*>(a_geometry ? a_geometry->GetGeometryRuntimeData().shaderProperty.get() : nullptr);
-				auto*       material = shader ? static_cast<RE::BSLightingShaderMaterialBase*>(shader->material) : nullptr;
-				const char* diffuse = material && material->textureSet ? material->textureSet->GetTexturePath(RE::BSTextureSet::Textures::kDiffuse) : nullptr;
+				const char* diffuse = DiffuseOf(a_geometry);
 				if (diffuse && *diffuse && textures.insert(Lower(diffuse)).second && !AddTexturePixels(diffuse, sum)) {
 					SKSE::log::info("gems: {} - its texture {} could not be read", a_model, diffuse);
 				}
@@ -269,6 +298,46 @@ namespace Plugin
 			});
 			it->second = sum.Result();
 			return it->second;
+		}
+
+		// the gem mod whose author has not allowed this mod to light it yet, when a_model or one of its diffuse textures is that
+		// mod's file - such a gem stays unlit until the permission comes; once per model
+		std::optional<std::string_view> BlockedBy(std::string_view a_model)
+		{
+			static std::unordered_map<std::string, std::optional<std::string_view>> read;
+			if (a_model.empty()) {
+				return std::nullopt;
+			}
+			const auto [it, added] = read.try_emplace(Gems::NormalPath(a_model));
+			if (!added) {
+				return it->second;
+			}
+			auto&                     found = it->second;
+			const std::string         path(a_model);
+			RE::NiPointer<RE::NiNode> root;
+			found = BlockedFile(path, "meshes");
+			if (found || REL::Module::IsVR() ||
+				RE::BSModelDB::Demand(path.c_str(), root, RE::BSModelDB::DBTraits::ArgsType{}) != RE::BSResource::ErrorCode::kNone || !root) {
+				return found;
+			}
+			RE::BSVisit::TraverseScenegraphGeometries(root.get(), [&](RE::BSGeometry* a_geometry) {
+				if (const char* diffuse = DiffuseOf(a_geometry); diffuse && *diffuse) {
+					found = BlockedFile(diffuse, "textures");
+				}
+				return found ? RE::BSVisit::BSVisitControl::kStop : RE::BSVisit::BSVisitControl::kContinue;
+			});
+			return found;
+		}
+
+		// one more of a_name in a name -> count list (kept in the order first seen)
+		void CountName(std::vector<std::pair<std::string, std::size_t>>& a_list, std::string_view a_name)
+		{
+			const auto it = std::ranges::find(a_list, a_name, &std::pair<std::string, std::size_t>::first);
+			if (it == a_list.end()) {
+				a_list.emplace_back(std::string(a_name), 1);
+			} else {
+				++it->second;
+			}
 		}
 
 		[[nodiscard]] Gems::Kind KindOfCapacity(RE::SOUL_LEVEL a_level) noexcept
@@ -302,6 +371,10 @@ namespace Plugin
 		// a gem this plugin lights is kept; one another light mod lights is counted and left to it (Gems::OwnerOf)
 		bool Take(const RE::TESBoundObject* a_form, std::string_view a_model, const Gem& a_gem, const Others& a_others)
 		{
+			if (const auto mod = BlockedBy(a_model)) {
+				CountName(gBlocked, *mod);
+				return false;
+			}
 			const bool claimed = a_others.lightPlacer && Claimed(a_others.claims, a_form, a_model);
 			const auto owner = Gems::OwnerOf(a_model, a_gem.look.family, a_others.lightPlacer, claimed, a_others.reLight);
 			if (owner != Gems::Owner::kThisMod) {
@@ -728,6 +801,7 @@ namespace Plugin
 		gGems.clear();
 		gFamilies.clear();
 		gLeftTo = {};
+		gBlocked.clear();
 		auto* dh = RE::TESDataHandler::GetSingleton();
 		if (!dh) {
 			SKSE::log::error("gems: no data handler - nothing is lit");
@@ -774,7 +848,8 @@ namespace Plugin
 			} else if (!look || look->family == Gems::Family::kSoulCairn) {
 				look = Gems::GameLook(KindOfCapacity(gem->GetMaximumCapacity()), gem->CanHoldNPCSoul());
 			}
-			if (Gems::ColorFromModel(look->family)) {
+			// a gem left unlit for want of its author's permission never needs its color read
+			if (Gems::ColorFromModel(look->family) && !BlockedBy(model)) {
 				if (const auto own = ModelColor(model)) {
 					look->rgb = *own;
 					++fromModel;
@@ -783,13 +858,7 @@ namespace Plugin
 			const bool always = star || holds || look->family == Gems::Family::kNamed;
 			if (Take(gem, model, Gem{ *look, !always }, others) && always) {
 				++lit;
-				const auto name = Gems::FamilyName(look->family);
-				const auto it = std::ranges::find(gFamilies, name, &std::pair<std::string, std::size_t>::first);
-				if (it == gFamilies.end()) {
-					gFamilies.emplace_back(std::string(name), 1);
-				} else {
-					++it->second;
-				}
+				CountName(gFamilies, Gems::FamilyName(look->family));
 			}
 		}
 		const std::size_t pieces = AddByModel<RE::TESObjectMISC>(true, others) + AddByModel<RE::IngredientItem>(true, others) +
@@ -813,6 +882,9 @@ namespace Plugin
 			gLeftTo[static_cast<std::size_t>(kReLight)], others.lightPlacer ? "loaded" : "not loaded", others.reLight ? "loaded" : "not loaded",
 			gParticleTextures.size());
 		SKSE::log::info("gems: {} soul gem record(s) wear the color read off their own model", fromModel);
+		for (const auto& [mod, n] : gBlocked) {
+			SKSE::log::info("gems: {} record(s) wear {}'s files - not lit until its author allows it", n, mod);
+		}
 		for (const auto& [form, gem] : gGems) {
 			if (const auto* soulGem = form->As<RE::TESModel>(); soulGem && form->Is(RE::FormType::SoulGem) && Gems::ColorFromModel(gem.look.family)) {
 				const char* model = soulGem->GetModel();
@@ -858,6 +930,7 @@ namespace Plugin
 	std::size_t GemLightsMade() { return gMade.load(); }
 
 	std::vector<std::pair<std::string, std::size_t>> GemFamilies() { return gFamilies; }
+	std::vector<std::pair<std::string, std::size_t>> GemsBlocked() { return gBlocked; }
 	std::array<std::size_t, 4>                       GemsLeftTo() { return gLeftTo; }
 	std::size_t                                      GemsLeftToOwnLight() { return gOwnLightNow.load(); }
 	std::string                                      RusticFound() { return gRustic; }
@@ -875,13 +948,16 @@ namespace Plugin
 				lights.empty() ? "" : ",", id, Gems::FamilyName(kept.gem->look.family), static_cast<int>(kept.gem->look.kind),
 				kept.gem->look.rgb[0], kept.gem->look.rgb[1], kept.gem->look.rgb[2], d.fade, d.radius.x, p.x, p.y, p.z);
 		}
-		std::string families;
+		std::string families, blocked;
 		for (const auto& [name, n] : gFamilies) {
 			families += std::format(R"({}"{}":{})", families.empty() ? "" : ",", name, n);
 		}
+		for (const auto& [name, n] : gBlocked) {
+			blocked += std::format(R"({}"{}":{})", blocked.empty() ? "" : ",", name, n);
+		}
 		return std::format(
-			R"({{"gemForms":{},"litByLook":{{{}}},"rustic":"{}","leftTo":{{"emissiveSoulGems":{},"lightPlacer":{},"reLight":{},"ownLightNearYou":{}}},"onShowNearYou":{},"particleLightConfigs":{},"displays":{},"displaysDark":{},"lightsNow":{},"lightsMade":{},"lights":[{}]}})",
-			gGems.size(), families, gRustic, gLeftTo[1], gLeftTo[2], gLeftTo[3], gOwnLightNow.load(), gOnShowNow.load(), gParticleTextures.size(),
+			R"({{"gemForms":{},"litByLook":{{{}}},"waitingOnPermission":{{{}}},"rustic":"{}","leftTo":{{"emissiveSoulGems":{},"lightPlacer":{},"reLight":{},"ownLightNearYou":{}}},"onShowNearYou":{},"particleLightConfigs":{},"displays":{},"displaysDark":{},"lightsNow":{},"lightsMade":{},"lights":[{}]}})",
+			gGems.size(), families, blocked, gRustic, gLeftTo[1], gLeftTo[2], gLeftTo[3], gOwnLightNow.load(), gOnShowNow.load(), gParticleTextures.size(),
 			gDisplays.size(), gDisplaysDark.load(), gKept.size(), gMade.load(), lights);
 	}
 }

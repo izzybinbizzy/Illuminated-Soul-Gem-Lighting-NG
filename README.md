@@ -1,13 +1,14 @@
-# Soul Gem Hub - SKSE plugin
+# Illuminated - Soul Gem Hub - SKSE plugin
 
 Copyright (C) 2026 izzydoingit. GPL-3.0-or-later, see `LICENSE`.
 
-The plugin of Soul Gem Hub - it is the whole mod: no plugin file, no scripts, nothing written into the
+The plugin of Illuminated - Soul Gem Hub - it is the whole mod: no plugin file, no scripts, nothing written into the
 save.
 
 ## What it does
-- Every filled soul gem lying in the world gets a soft light in its own color: the game's gems, Praedy's Soul Gems, Rustic
-  Soul Gems, Azura's Star, the Black Star, the named quest gems and the Soul Cairn's gem bowl and chunks.
+- Every filled soul gem lying in the world gets a soft light in its own color: the game's gems, Praedy's Soul Gems,
+  Azura's Star, the Black Star, the named quest gems and the Soul Cairn's gem bowl and chunks.
+- Gem mods whose authors have not allowed it yet are left unlit (`src/GemPermissions.h`, file fingerprints).
 - Finds the lighting by itself (Community Shaders with or without Light Placer, ENB, Vanilla) and makes each light for it.
 - Leaves every gem another mod already lights to that mod (Light Placer files, RE::Light files, gems whose mesh carries a
   light of its own), so no gem glows twice. Displays are never lit.
@@ -16,7 +17,7 @@ save.
 SKSE and Address Library for SKSE Plugins; SKSE Menu Framework for the menu.
 
 ## Settings
-SKSE Menu Framework > Soul Gem Hub, saved to `Data\SKSE\Plugins\SoulGemHub\Settings.ini`.
+SKSE Menu Framework > Illuminated - Soul Gem Hub, saved to `Data\SKSE\Plugins\SoulGemHub\Settings.ini`.
 
 ## Building
 `build.bat` (git, xmake 3 and the Visual Studio C++ tools): CommonLib at the pinned commit, the DLL, then the off-game

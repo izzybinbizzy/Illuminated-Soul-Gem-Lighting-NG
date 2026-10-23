@@ -35,7 +35,7 @@ target("SoulGemHub", function()
     add_rules("commonlibsse-ng.plugin", {
         name = "SoulGemHub",
         author = "izzydoingit",
-        description = "Soul Gem Hub - every soul gem glows in its own color, on Community Shaders, ENB and Vanilla",
+        description = "Illuminated - Soul Gem Hub - every soul gem glows in its own color, on Community Shaders, ENB and Vanilla",
     })
     add_files("src/*.cpp")
     add_headerfiles("src/*.h")

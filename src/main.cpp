@@ -86,7 +86,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 	// the version the DLL declares (xmake.lua set_version), never a typed number
 	const auto* decl = SKSE::PluginDeclaration::GetSingleton();
 	const auto  ver = decl ? std::format("{}.{}", decl->GetVersion().major(), decl->GetVersion().minor()) : std::string("?");
-	SKSE::log::info("Soul Gem Hub {} - every soul gem glows in its own color, on any lighting", ver);
+	SKSE::log::info("Illuminated - Soul Gem Hub {} - every soul gem glows in its own color, on any lighting", ver);
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
 	return true;
 }
