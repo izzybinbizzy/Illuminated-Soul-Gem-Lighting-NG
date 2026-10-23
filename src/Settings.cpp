@@ -1,8 +1,8 @@
-// Illuminated - Soul Gem Lighting NG - SKSE plugin
+// Soul Gem Hub - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// IlluminatedSoulGems\Settings.ini, written by the menu (settings live in the SKSE menu only - his rule): the live table (GemMath.h's
+// SoulGemHub\Settings.ini, written by the menu (settings live in the SKSE menu only - his rule): the live table (GemMath.h's
 // Settings, read and written by the game-free reader and writer the off-game tests run) under one lock.
 
 #include "Plugin.h"
@@ -11,7 +11,7 @@ namespace Plugin
 {
 	namespace
 	{
-		constexpr const char* kPath = "Data/SKSE/Plugins/IlluminatedSoulGems/Settings.ini";
+		constexpr const char* kPath = "Data/SKSE/Plugins/SoulGemHub/Settings.ini";
 
 		std::mutex     gLock;
 		Gems::Settings gS;  // under gLock

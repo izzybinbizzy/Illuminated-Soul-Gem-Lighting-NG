@@ -1,4 +1,4 @@
-// Illuminated - Soul Gem Lighting NG - tests for src/GemMath.h (no game needed).
+// Soul Gem Hub - tests for src/GemMath.h (no game needed).
 // Copyright (C) 2026 izzydoingit. GPL-3.0-or-later.
 //
 // PC Runner\plugin build.py builds and runs them (xmake target testgems), then again under clang's address and

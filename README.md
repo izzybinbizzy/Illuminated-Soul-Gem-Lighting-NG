@@ -1,8 +1,8 @@
-# Illuminated - Soul Gem Lighting NG - SKSE plugin
+# Soul Gem Hub - SKSE plugin
 
 Copyright (C) 2026 izzydoingit. GPL-3.0-or-later, see `LICENSE`.
 
-The plugin of Illuminated - Soul Gem Lighting NG - it is the whole mod: no plugin file, no scripts, nothing written into the
+The plugin of Soul Gem Hub - it is the whole mod: no plugin file, no scripts, nothing written into the
 save.
 
 ## What it does
@@ -16,7 +16,7 @@ save.
 SKSE and Address Library for SKSE Plugins; SKSE Menu Framework for the menu.
 
 ## Settings
-SKSE Menu Framework > Illuminated - Soul Gem Lighting NG, saved to `Data\SKSE\Plugins\IlluminatedSoulGems\Settings.ini`.
+SKSE Menu Framework > Soul Gem Hub, saved to `Data\SKSE\Plugins\SoulGemHub\Settings.ini`.
 
 ## Building
 `build.bat` (git, xmake 3 and the Visual Studio C++ tools): CommonLib at the pinned commit, the DLL, then the off-game

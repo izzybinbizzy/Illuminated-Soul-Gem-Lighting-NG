@@ -1,6 +1,6 @@
--- Illuminated - Soul Gem Lighting NG - SKSE plugin. GPL-3.0-or-later, see LICENSE.txt.
+-- Soul Gem Hub - SKSE plugin. GPL-3.0-or-later, see LICENSE.txt.
 set_xmakever("3.0.0")
-set_project("IlluminatedSoulGems")
+set_project("SoulGemHub")
 set_version("1.0.0")
 set_license("GPL-3.0-or-later")
 set_arch("x64")
@@ -28,14 +28,14 @@ add_requires("nlohmann_json v3.12.0")
 -- a gem model's color is read off its textures at data load (Microsoft's DirectXTex, MIT-licensed; CPU decoding only)
 add_requires("directxtex 2025.07", { configs = { dx11 = false, dx12 = false, runtimes = "MT" } })
 
-target("IlluminatedSoulGems", function()
+target("SoulGemHub", function()
     add_deps("commonlibsse-ng")
     add_packages("nlohmann_json", "directxtex")
     add_defines("NOMINMAX")  -- windows.h min/max macros break std::min/max and numeric_limits::max
     add_rules("commonlibsse-ng.plugin", {
-        name = "IlluminatedSoulGems",
+        name = "SoulGemHub",
         author = "izzydoingit",
-        description = "Illuminated - Soul Gem Lighting NG - every soul gem glows in its own color, on Community Shaders, ENB and Vanilla",
+        description = "Soul Gem Hub - every soul gem glows in its own color, on Community Shaders, ENB and Vanilla",
     })
     add_files("src/*.cpp")
     add_headerfiles("src/*.h")

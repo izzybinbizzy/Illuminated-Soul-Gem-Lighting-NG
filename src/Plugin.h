@@ -1,4 +1,4 @@
-// Illuminated - Soul Gem Lighting NG - SKSE plugin
+// Soul Gem Hub - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
@@ -59,7 +59,7 @@ namespace Plugin
 	[[nodiscard]] bool        InverseSquare();  // the lights are written in Community Shaders' inverse-square words
 	[[nodiscard]] std::string LightingReport();
 
-	// ------------------------------------------------------------------ Settings.cpp: IlluminatedSoulGems\Settings.ini, written by the menu
+	// ------------------------------------------------------------------ Settings.cpp: SoulGemHub\Settings.ini, written by the menu
 	void                         LoadSettings();
 	void                         SaveSettings();  // any thread
 	[[nodiscard]] Gems::Settings SettingsNow();
