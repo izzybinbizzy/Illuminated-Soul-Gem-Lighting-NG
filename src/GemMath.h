@@ -1,4 +1,4 @@
-// Illuminated - Soul Gem Lighting NG - SKSE plugin
+// Soul Gem Hub - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
@@ -6,7 +6,7 @@
 //   text      Lower, SameText, Trim, BareName - a model path as the plugin compares it
 //   light     CutoffFor, IslReach, PlainAt - Illuminated's LightMath.h, the same numbers; KeyAt - Truman's KeyframeSequence maths
 //   gems      which gem a model is, its color (ColorSum: off its texture pixels) and its strength
-//   settings  IlluminatedSoulGems\Settings.ini as one table, its reader and its writer
+//   settings  SoulGemHub\Settings.ini as one table, its reader and its writer
 
 #pragma once
 
@@ -248,7 +248,7 @@ namespace Gems
 		{ "dlc01\\dungeons\\castle\\animated\\scportalbowl\\casscportalbowl01.nif", Family::kSoulCairn, Kind::kNamed, { 170, 90, 255 } },  // the portal's bowl
 	} };
 
-	inline constexpr Rgb kAzurasStarRgb{ 255, 222, 165 };  // its art is gold and white (the game's and Praedy's)
+	inline constexpr Rgb kAzurasStarRgb{ 111, 217, 255 };  // the teal of its texture's colored panels, as it shows in game
 	inline constexpr Rgb kBlackStarRgb{ 150, 70, 255 };    // its art is a dark purple
 
 	[[nodiscard]] inline const Rgb& SizeRgb(const std::array<Rgb, 6>& a_family, Kind a_kind) noexcept
@@ -384,7 +384,7 @@ namespace Gems
 		return std::ranges::find(kEmissiveModels, NormalPath(a_model)) != kEmissiveModels.end();
 	}
 
-	// the gems this mod's RE::Light configs light (SKSE\Plugins\ReLight\Configs\Illuminated - Soul Gem Lighting NG\): Praedy's
+	// the gems this mod's RE::Light configs light (SKSE\Plugins\ReLight\Configs\Soul Gem Hub\): Praedy's
 	// filled gems, the named quest gems and the Soul Cairn's pieces - each keyed by its own model (the Soul Essence Gem by its
 	// record). With RE::Light loaded the plugin leaves these to it; the gems that share the game's model (or are Emissive Soul
 	// Gems' models) have no config, so the plugin lights them itself
@@ -464,7 +464,7 @@ namespace Gems
 		return { plain.fade, (std::max)(plain.radius, 1.0f), 0.0f };
 	}
 
-	// ------------------------------------------------------------------ settings (IlluminatedSoulGems\Settings.ini, written by the menu)
+	// ------------------------------------------------------------------ settings (SoulGemHub\Settings.ini, written by the menu)
 	inline constexpr int kBrightnessMin = 25, kBrightnessMax = 200, kReachMin = 50, kReachMax = 150;
 
 	struct Settings
@@ -515,7 +515,7 @@ namespace Gems
 
 	inline void WriteSettings(const Settings& a_s, std::ostream& a_out)
 	{
-		a_out << "; Illuminated - Soul Gem Lighting NG - written by its menu (SKSE Menu Framework). Change these in game, not here.\n"
+		a_out << "; Soul Gem Hub - written by its menu (SKSE Menu Framework). Change these in game, not here.\n"
 			  << "[Settings]\nLights=" << (a_s.on ? 1 : 0) << "\nBrightness=" << a_s.brightness << "\nReach=" << a_s.reach
 			  << "\nPulse=" << (a_s.pulse ? 1 : 0) << "\n";
 	}

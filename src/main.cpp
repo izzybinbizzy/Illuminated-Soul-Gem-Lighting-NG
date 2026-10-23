@@ -1,4 +1,4 @@
-// Illuminated - Soul Gem Lighting NG - SKSE plugin
+// Soul Gem Hub - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 //
 // This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -36,7 +36,7 @@ namespace
 		const auto started = std::chrono::steady_clock::now();
 		ReadLighting();
 		FindGems();
-		SKSE::log::info("{}", Translation::Load("Data/SKSE/Plugins/IlluminatedSoulGems/Translation.json"));
+		SKSE::log::info("{}", Translation::Load("Data/SKSE/Plugins/SoulGemHub/Translation.json"));
 		RegisterMenu();
 		InstallFrame();
 		SKSE::log::info("ready in {:.1f} ms", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
@@ -86,7 +86,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 	// the version the DLL declares (xmake.lua set_version), never a typed number
 	const auto* decl = SKSE::PluginDeclaration::GetSingleton();
 	const auto  ver = decl ? std::format("{}.{}", decl->GetVersion().major(), decl->GetVersion().minor()) : std::string("?");
-	SKSE::log::info("Illuminated - Soul Gem Lighting NG {} - every soul gem glows in its own color, on any lighting", ver);
+	SKSE::log::info("Soul Gem Hub {} - every soul gem glows in its own color, on any lighting", ver);
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
 	return true;
 }

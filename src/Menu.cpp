@@ -1,4 +1,4 @@
-// Illuminated - Soul Gem Lighting NG - SKSE plugin
+// Soul Gem Hub - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
@@ -147,7 +147,7 @@ namespace Plugin
 			SKSE::log::warn("SKSE Menu Framework is not installed, so there is no settings page; the settings file still applies");
 			return;
 		}
-		SKSEMenuFramework::SetSection(T("Illuminated - Soul Gem Lighting NG"));
+		SKSEMenuFramework::SetSection(T("Soul Gem Hub"));
 		SKSEMenuFramework::AddSectionItem(T("Settings"), RenderSettings);
 		SKSE::log::info("settings page added to SKSE Menu Framework {}", SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
