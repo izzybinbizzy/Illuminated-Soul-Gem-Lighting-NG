@@ -29,7 +29,7 @@ namespace
 #define CHECK(x) Check((x), #x, __LINE__)
 
 	// the fewest checks a whole run makes (raise it when checks are added; lower it only when checks are removed on purpose)
-	constexpr int kFloor = 118;
+	constexpr int kFloor = 141;
 
 	using namespace Gems;
 
@@ -262,6 +262,40 @@ namespace
 	}
 }
 
+namespace
+{
+	void Permits()
+	{
+		const std::uint8_t a[] = { 'a' };
+		CHECK(Fingerprint(a) == 0x089BE307B544F397ULL);
+		CHECK(Fingerprint({}) == (0xCBF29CE484222325ULL * 0x100000001B3ULL));
+		std::vector<std::uint8_t> big(kFingerprintHead + 10, 7);
+		CHECK(Fingerprint(big) != Fingerprint(std::span(big).first(kFingerprintHead)));
+		CHECK(std::ranges::is_sorted(kBlockedFiles, {}, &BlockedFile::hash));
+		CHECK(std::ranges::all_of(kBlockedFiles, [](const BlockedFile& f) { return f.mod < kBlockedMods.size(); }));
+		CHECK(BlockedModOf(kBlockedFiles.front().hash) == kBlockedMods[kBlockedFiles.front().mod]);
+		CHECK(BlockedModOf(kBlockedFiles.back().hash) == kBlockedMods[kBlockedFiles.back().mod]);
+		CHECK(!BlockedModOf(Fingerprint(a)));
+		FingerprintSum pieces;
+		pieces.Add(std::span(big).first(40000));
+		pieces.Add(std::span(big).subspan(40000));
+		CHECK(pieces.Result() == Fingerprint(big) && pieces.Size() == big.size());
+		CHECK(TexturePath("Data\\Textures/Clutter/SoulGem/Full/X.DDS") == "clutter\\soulgem\\full\\x.dds");
+		CHECK(TexturePath("clutter\\x.dds") == "clutter\\x.dds");
+		CHECK(std::ranges::is_sorted(kBlockedPaths, {}, &BlockedPath::path));
+		CHECK(std::ranges::all_of(kBlockedPaths, [](const BlockedPath& p) { return p.mod < kBlockedMods.size() && p.path == Lower(p.path); }));
+		CHECK(BlockedModOfPath(kBlockedPaths.front().path) == kBlockedMods[kBlockedPaths.front().mod]);
+		CHECK(!BlockedModOfPath("clutter\\soulgem\\soulgemgrand01.nif"));  // the game's own model is never a blocked name
+		const auto        field = [](std::string_view a_text) { return std::string(1, static_cast<char>(a_text.size())) + std::string(3, '\0') + std::string(a_text); };
+		const std::string nif = field("NiNode") + field("Textures\\Clutter\\A\\Gem.DDS") + field("textures\\clutter\\a\\gem_n.dds") +
+		                        field("textures\\clutter\\a\\gem.dds");
+		const auto        named = TexturesNamed(std::span(reinterpret_cast<const std::uint8_t*>(nif.data()), nif.size()));
+		CHECK(named.size() == 2 && named[0] == "clutter\\a\\gem.dds" && named[1] == "clutter\\a\\gem_n.dds");
+		CHECK(ColorTexture("textures\\clutter\\a\\gem.dds") && !ColorTexture("clutter\\a\\gem_n.dds") && !ColorTexture("cubemaps\\shinyglass_e.dds"));
+		CHECK(TexturesNamed({}).empty());
+	}
+}
+
 int main()
 {
 	Text();
@@ -272,6 +306,7 @@ int main()
 	Owners();
 	Tokens();
 	SettingsText();
+	Permits();
 	std::printf("%d passed, %d failed\n", gPassed, gFailed);
 	if (gPassed < kFloor) {
 		std::printf("FAIL: only %d checks ran, under the floor of %d - a test stopped part way\n", gPassed, kFloor);

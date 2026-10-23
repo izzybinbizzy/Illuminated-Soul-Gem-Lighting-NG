@@ -124,6 +124,9 @@ namespace Plugin
 					TextColored(kMuted, "%s", Fill(T(leftTo[i]), std::to_string(left[i])).c_str());
 				}
 			}
+			for (const auto& [mod, n] : GemsBlocked()) {
+				TextColored(kMuted, "%s", Fill(T("Not lit until its author allows it - {}: {}"), mod, std::to_string(n)).c_str());
+			}
 			if (const auto own = GemsLeftToOwnLight(); own) {
 				TextColored(kMuted, "%s", Fill(T("Gems near you left to their own light: {}"), std::to_string(own)).c_str());
 			}
@@ -147,7 +150,7 @@ namespace Plugin
 			SKSE::log::warn("SKSE Menu Framework is not installed, so there is no settings page; the settings file still applies");
 			return;
 		}
-		SKSEMenuFramework::SetSection(T("Soul Gem Hub"));
+		SKSEMenuFramework::SetSection(T("Illuminated - Soul Gem Hub"));
 		SKSEMenuFramework::AddSectionItem(T("Settings"), RenderSettings);
 		SKSE::log::info("settings page added to SKSE Menu Framework {}", SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
