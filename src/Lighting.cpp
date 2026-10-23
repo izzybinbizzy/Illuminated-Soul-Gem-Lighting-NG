@@ -8,9 +8,13 @@
 //                       keeps the name): a light's reach comes from its fade and its cutoff, written in Community Shaders' words
 //   ENB                 } the game's own lighting: a light reaches its radius, drawn plain (GemMath.h ShownFor)
 //   Vanilla             }
-// Leftover ENB settings never make it ENB while Community Shaders runs (RELight 2.1's report, Illuminated's rule).
+// Leftover ENB settings never make it ENB while Community Shaders runs (RELight 2.1's report, Illuminated's rule), and ENB's settings
+// files alone never make it ENB at all: an ENB preset left in the game folder with no ENB running is Vanilla lighting.
 
 #include "Plugin.h"
+
+#include <Windows.h>
+#include <TlHelp32.h>
 
 namespace Plugin
 {
@@ -44,8 +48,7 @@ namespace Plugin
 
 		[[nodiscard]] bool CommunityShadersLoaded() { return REX::W32::GetModuleHandleA("CommunityShaders.dll") != nullptr; }
 
-		// an ENB that is running: its d3d11.dll exports its SDK (one loaded through an injector under another name is found by its
-		// settings files instead)
+		// an ENB that is running: a loaded module exports its SDK - d3d11.dll as usual, or any other name an injector gave it
 		[[nodiscard]] bool EnbRunning()
 		{
 			for (const char* dll : { "d3d11.dll", "dxgi.dll", "d3d9.dll" }) {
@@ -53,7 +56,18 @@ namespace Plugin
 					return true;
 				}
 			}
-			return false;
+			const auto snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
+			if (snap == INVALID_HANDLE_VALUE) {
+				return false;
+			}
+			bool           found = false;
+			MODULEENTRY32W entry{};
+			entry.dwSize = sizeof(entry);
+			for (bool more = ::Module32FirstW(snap, &entry); more && !found; more = ::Module32NextW(snap, &entry)) {
+				found = ::GetProcAddress(entry.hModule, "ENBGetSDKVersion") != nullptr;
+			}
+			::CloseHandle(snap);
+			return found;
 		}
 	}
 
@@ -66,13 +80,14 @@ namespace Plugin
 		gIslShader = shaderFile || inLlf || gCsLoaded;
 		gEnbRunning = EnbRunning();
 		gEnbFiles = EnbFilesLeft();
-		gFound = gIslShader ? Lighting::kShaders : gEnbRunning || gEnbFiles ? Lighting::kEnb :
-		                                                                      Lighting::kVanilla;
+		gFound = gIslShader ? Lighting::kShaders : gEnbRunning ? Lighting::kEnb :
+		                                                         Lighting::kVanilla;
 		SKSE::log::info(
 			"lighting: {} (detected - CommunityShaders.dll {}, inverse square shader {}, in Light Limit Fix {}, ENB running {}, ENB "
-			"settings in the game folder {}); lights drawn {}",
+			"settings in the game folder {}{}); lights drawn {}",
 			LightingName(gFound), gCsLoaded ? "loaded" : "not loaded", shaderFile ? "installed" : "not installed", inLlf ? "yes" : "no",
-			gEnbRunning ? "yes" : "no", gEnbFiles ? "yes" : "no", InverseSquare() ? "inverse square" : "plain");
+			gEnbRunning ? "yes" : "no", gEnbFiles ? "yes" : "no", gEnbFiles && !gEnbRunning && !gIslShader ? " - left over, not used" : "",
+			InverseSquare() ? "inverse square" : "plain");
 	}
 
 	Lighting LightingFound()
