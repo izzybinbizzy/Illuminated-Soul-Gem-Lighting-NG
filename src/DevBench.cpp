@@ -3,11 +3,11 @@
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
 // DevBench, when it is in the load order (it is optional; nothing here runs without it):
-//   inspect kind=soulgemhub     the lighting found, the settings, the gems known (by look, and those left to another
-//                                        light mod), and every gem light near the player now (its gem, color, fade, radius, place)
-//   soulgemhub.control          action = set (setting + value: one menu setting changed the way the menu does - saved,
-//                                        then applied on the main thread; the reply is the state after it) | rescan (look for
-//                                        the gems around the player again now)
+//   inspect kind=soulgemhub   the lighting found, the settings, the gems known (by look, and those left to another
+//                             light mod), and every gem light near the player now (its gem, color, fade, radius, place)
+//   soulgemhub.control        action = set (setting + value: one menu setting changed the way the menu does - saved,
+//                             then applied on the main thread; the reply is the state after it) | rescan (look for
+//                             the gems around the player again now)
 
 #include "Plugin.h"
 
