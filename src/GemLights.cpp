@@ -190,13 +190,11 @@ namespace Plugin
 		// a file the game can open (loose or in an archive) under a_folder ("textures", "meshes"), handed to a_take piece by
 		// piece; false when it cannot be opened
 		template <class F>
-		bool ReadGameFile(std::string a_path, std::string_view a_folder, F&& a_take)
+		bool ReadGameFile(std::string_view a_path, std::string_view a_folder, F&& a_take)
 		{
-			std::ranges::replace(a_path, '/', '\\');
-			if (const auto prefix = std::string(a_folder) + "\\"; !Lower(a_path).starts_with(prefix)) {
-				a_path.insert(0, prefix);
-			}
-			RE::BSResourceNiBinaryStream stream(a_path);
+			// the same normal form the permission lookups use, so "Data\Textures\x.dds" or "\Meshes\x.nif" open too
+			const auto                   path = std::string(a_folder) + "\\" + (a_folder == "meshes" ? Gems::NormalPath(a_path) : Gems::TexturePath(a_path));
+			RE::BSResourceNiBinaryStream stream(path);
 			const auto*                  source = stream.good() ? stream.stream.get() : nullptr;
 			if (!source) {
 				return false;
@@ -210,13 +208,13 @@ namespace Plugin
 
 		// the gem mod a file of the game's belongs to, while its author has not allowed this mod to light it: by its name, else
 		// by its bytes (streamed - only the first 64 KB are hashed, a 4K texture is never held whole)
-		std::optional<std::string_view> BlockedFile(const std::string& a_path, std::string_view a_folder)
+		std::optional<std::string_view> BlockedTexture(std::string_view a_path)
 		{
-			if (const auto byName = Gems::BlockedModOfPath(a_folder == "meshes" ? Gems::NormalPath(a_path) : Gems::TexturePath(a_path))) {
+			if (const auto byName = Gems::BlockedModOfPath(Gems::TexturePath(a_path))) {
 				return byName;
 			}
 			Gems::FingerprintSum sum;
-			if (!ReadGameFile(a_path, a_folder, [&](std::span<const std::uint8_t> a_piece) { sum.Add(a_piece); }) || !sum.Size()) {
+			if (!ReadGameFile(a_path, "textures", [&](std::span<const std::uint8_t> a_piece) { sum.Add(a_piece); }) || !sum.Size()) {
 				return std::nullopt;
 			}
 			return Gems::BlockedModOf(sum.Result());
@@ -312,20 +310,23 @@ namespace Plugin
 			if (!added) {
 				return it->second;
 			}
-			auto&                     found = it->second;
-			const std::string         path(a_model);
-			RE::NiPointer<RE::NiNode> root;
-			found = BlockedFile(path, "meshes");
-			if (found || REL::Module::IsVR() ||
-				RE::BSModelDB::Demand(path.c_str(), root, RE::BSModelDB::DBTraits::ArgsType{}) != RE::BSResource::ErrorCode::kNone || !root) {
+			auto& found = it->second;
+			if ((found = Gems::BlockedModOfPath(it->first))) {
 				return found;
 			}
-			RE::BSVisit::TraverseScenegraphGeometries(root.get(), [&](RE::BSGeometry* a_geometry) {
-				if (const char* diffuse = DiffuseOf(a_geometry); diffuse && *diffuse) {
-					found = BlockedFile(diffuse, "textures");
+			std::vector<std::uint8_t> nif;
+			if (!ReadGameFile(a_model, "meshes", [&](std::span<const std::uint8_t> a_piece) { nif.insert(nif.end(), a_piece.begin(), a_piece.end()); }) || nif.empty()) {
+				return found;
+			}
+			if ((found = Gems::BlockedModOf(Gems::Fingerprint(nif)))) {
+				return found;
+			}
+			// the color textures the model names (read off its bytes, so VR is covered too)
+			for (const auto& texture : Gems::TexturesNamed(nif)) {
+				if (Gems::ColorTexture(texture) && (found = BlockedTexture(texture))) {
+					break;
 				}
-				return found ? RE::BSVisit::BSVisitControl::kStop : RE::BSVisit::BSVisitControl::kContinue;
-			});
+			}
 			return found;
 		}
 

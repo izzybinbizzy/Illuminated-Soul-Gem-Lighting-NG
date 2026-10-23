@@ -2,10 +2,10 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// MADE BY Misc\Build work\soul gem coverage 2026-10-21\perm signatures.py - never edited by hand.
-// The soul gem mods this plugin may not light until their authors allow it (their Nexus permissions): the fingerprint of
+// GENERATED - never edited by hand (see README.md, "The permission table"). The soul gem mods this plugin may not light
+// until their authors allow it (their Nexus permissions): the fingerprint (FNV-1a 64 of the first 64 KB, then the size) of
 // each of their gem models and the textures those name, minus every file the game or an allowed mod ships too, and the
-// file names only such a mod ships. GemLights.cpp looks a gem's model and its diffuse textures up in both.
+// file names only such mods ship. GemLights.cpp looks a gem's model and its color textures up in both.
 
 #pragma once
 

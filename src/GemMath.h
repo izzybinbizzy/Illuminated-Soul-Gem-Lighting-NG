@@ -472,6 +472,40 @@ namespace Gems
 		return out;
 	}
 
+	// every texture a model file names, read off its bytes (a NIF keeps each path as plain text after its length), as
+	// TexturePath writes it - no model loader needed, so it works on VR too
+	[[nodiscard]] inline std::vector<std::string> TexturesNamed(std::span<const std::uint8_t> a_nif)
+	{
+		std::vector<std::string> out;
+		std::size_t              start = 0;
+		for (std::size_t i = 0; i <= a_nif.size(); ++i) {
+			if (i < a_nif.size() && a_nif[i] >= 0x20 && a_nif[i] < 0x7F) {
+				continue;
+			}
+			const std::string_view run(reinterpret_cast<const char*>(a_nif.data()) + start, i - start);
+			if (run.size() > 4 && SameText(run.substr(run.size() - 4), ".dds")) {
+				if (auto path = TexturePath(run); std::ranges::find(out, path) == out.end()) {
+					out.push_back(std::move(path));
+				}
+			}
+			start = i + 1;
+		}
+		return out;
+	}
+
+	// a texture that gives a model its colors - not a cubemap, normal, specular, glow or other map, which mods share widely
+	// (a shared cubemap must never mark someone else's gem as a blocked mod's)
+	[[nodiscard]] inline bool ColorTexture(std::string_view a_texture)
+	{
+		const auto path = TexturePath(a_texture);
+		if (path.starts_with("cubemaps\\") || !path.ends_with(".dds")) {
+			return false;
+		}
+		const std::string_view stem(path.data(), path.size() - 4);
+		return std::ranges::none_of(std::array<std::string_view, 8>{ "_n", "_m", "_e", "_g", "_s", "_p", "_em", "_msn" },
+			[&](std::string_view a_suffix) { return stem.ends_with(a_suffix); });
+	}
+
 	// the gem mod a file belongs to while its author has not allowed this mod to light it: by its bytes ...
 	[[nodiscard]] inline std::optional<std::string_view> BlockedModOf(std::uint64_t a_fingerprint) noexcept
 	{
